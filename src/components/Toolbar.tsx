@@ -6,11 +6,16 @@ interface Props {
   onToolChange: (t: Tool) => void;
   color: string;
   onColorChange: (c: string) => void;
+  recentColors: string[];
   model: SkinModel;
   onModelChange: (m: SkinModel) => void;
   showRegions: boolean;
   onToggleRegions: () => void;
-  onExport: () => void;
+  showOverlay: boolean;
+  onToggleOverlay: () => void;
+  onSave: () => void;
+  /** Only available in the desktop app, where saving goes to a remembered file */
+  onSaveAs?: () => void;
   onImport: () => void;
   onClear: () => void;
   onUndo: () => void;
@@ -20,8 +25,8 @@ interface Props {
 }
 
 const MODELS: { id: SkinModel; label: string; title: string }[] = [
-  { id: 'classic', label: 'クラシック', title: 'Steve 体型（腕 4px）' },
-  { id: 'slim',    label: 'スリム',     title: 'Alex 体型（腕 3px）' },
+  { id: 'classic', label: '標準',   title: 'クラシック / Steve 体型（腕 4px）' },
+  { id: 'slim',    label: 'スリム', title: 'スリム / Alex 体型（腕 3px）' },
 ];
 
 const TOOLS: { id: Tool; icon: string; label: string; key: string }[] = [
@@ -41,12 +46,11 @@ const PALETTE_COLORS = [
 ];
 
 export default function Toolbar({
-  tool, onToolChange, color, onColorChange,
+  tool, onToolChange, color, onColorChange, recentColors,
   model, onModelChange,
-  showRegions, onToggleRegions,
-  onExport, onImport, onClear, onUndo, canUndo, onRedo, canRedo,
+  showRegions, onToggleRegions, showOverlay, onToggleOverlay,
+  onSave, onSaveAs, onImport, onClear, onUndo, canUndo, onRedo, canRedo,
 }: Props) {
-  const [recentColors, setRecentColors] = useState<string[]>([]);
   const colorInputRef = useRef<HTMLInputElement>(null);
 
   // Text field keeps its own draft so a half-typed value never becomes the active color
@@ -56,14 +60,6 @@ export default function Toolbar({
     setPrevColor(color);
     setDraft(color);
   }
-
-  const handleColorChange = (c: string) => {
-    onColorChange(c);
-    setRecentColors(prev => {
-      const filtered = prev.filter(x => x !== c);
-      return [c, ...filtered].slice(0, 8);
-    });
-  };
 
   return (
     <aside className="toolbar">
@@ -97,7 +93,7 @@ export default function Toolbar({
           ref={colorInputRef}
           type="color"
           value={color}
-          onChange={e => handleColorChange(e.target.value)}
+          onChange={e => onColorChange(e.target.value)}
           className="color-input-hidden"
         />
         <input
@@ -106,7 +102,7 @@ export default function Toolbar({
           onChange={e => {
             setDraft(e.target.value);
             if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
-              handleColorChange(e.target.value.toLowerCase());
+              onColorChange(e.target.value.toLowerCase());
             }
           }}
           onBlur={() => setDraft(color)}
@@ -124,14 +120,14 @@ export default function Toolbar({
               key={c}
               className={`palette-btn ${color === c ? 'selected' : ''}`}
               style={{ background: c }}
-              onClick={() => handleColorChange(c)}
+              onClick={() => onColorChange(c)}
               title={c}
             />
           ))}
         </div>
       </section>
 
-      {/* Recent colors */}
+      {/* Recent colors (colors actually painted with) */}
       {recentColors.length > 0 && (
         <section className="toolbar-section">
           <div className="toolbar-label">最近使った色</div>
@@ -141,7 +137,7 @@ export default function Toolbar({
                 key={c}
                 className={`palette-btn ${color === c ? 'selected' : ''}`}
                 style={{ background: c }}
-                onClick={() => handleColorChange(c)}
+                onClick={() => onColorChange(c)}
                 title={c}
               />
             ))}
@@ -175,6 +171,13 @@ export default function Toolbar({
         >
           🗺️ パーツ表示
         </button>
+        <button
+          className={`option-btn ${showOverlay ? 'active' : ''}`}
+          onClick={onToggleOverlay}
+          title="3Dプレビューの重ね着レイヤーを表示"
+        >
+          🧥 重ね着表示
+        </button>
       </section>
 
       {/* Actions */}
@@ -193,9 +196,14 @@ export default function Toolbar({
 
       <section className="toolbar-section">
         <div className="toolbar-label">ファイル</div>
-        <button className="action-btn primary" onClick={onExport}>
+        <button className="action-btn primary" onClick={onSave}>
           💾 PNG で保存
         </button>
+        {onSaveAs && (
+          <button className="action-btn" onClick={onSaveAs}>
+            📝 名前を付けて保存
+          </button>
+        )}
         <button className="action-btn" onClick={onImport}>
           📂 PNG を読込
         </button>
@@ -207,6 +215,7 @@ export default function Toolbar({
         <div>Ctrl+Z: 元に戻す</div>
         <div>Ctrl+Y: やり直す</div>
         <div>Ctrl+S: 保存</div>
+        <div>PNG をドロップ: 読込</div>
       </div>
     </aside>
   );

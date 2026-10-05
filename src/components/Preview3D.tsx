@@ -8,9 +8,10 @@ import { SKIN_W, SKIN_H } from '../types';
 interface Props {
   pixelData: Uint8ClampedArray;
   model: SkinModel;
+  showOverlay: boolean;
 }
 
-export default function Preview3D({ pixelData, model }: Props) {
+export default function Preview3D({ pixelData, model, showOverlay }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -123,13 +124,16 @@ export default function Preview3D({ pixelData, model }: Props) {
     // Feet on y=0, head top at y=32
     const character = buildCharacter(texture, model);
     character.position.y = 6;
+    for (const part of character.children) {
+      if (part.userData.overlay) part.visible = showOverlay;
+    }
     scene.add(character);
 
     return () => {
       scene.remove(character);
       disposeCharacter(character);
     };
-  }, [model]);
+  }, [model, showOverlay]);
 
   // Update texture whenever pixelData changes
   useEffect(() => {

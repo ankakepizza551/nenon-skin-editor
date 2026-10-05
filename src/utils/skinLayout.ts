@@ -94,10 +94,9 @@ function makePart(
 export function buildCharacter(texture: THREE.Texture, model: SkinModel): THREE.Group {
   const group = new THREE.Group();
 
-  const baseMat = new THREE.MeshLambertMaterial({
-    map: texture,
-    alphaTest: 0.5,
-  });
+  // The game ignores transparency on the base layer and shows those pixels black,
+  // so the base material is opaque (transparent canvas pixels have black RGB)
+  const baseMat = new THREE.MeshLambertMaterial({ map: texture });
   const overlayMat = new THREE.MeshLambertMaterial({
     map: texture,
     transparent: true,
@@ -107,7 +106,9 @@ export function buildCharacter(texture: THREE.Texture, model: SkinModel): THREE.
 
   for (const part of getParts(model)) {
     group.add(makePart(part.size, part.base, 0, baseMat, part.pos));
-    group.add(makePart(part.size, part.overlay, part.inflate, overlayMat, part.pos));
+    const overlay = makePart(part.size, part.overlay, part.inflate, overlayMat, part.pos);
+    overlay.userData.overlay = true;
+    group.add(overlay);
   }
 
   return group;
@@ -123,6 +124,14 @@ export function disposeCharacter(group: THREE.Group) {
   });
   materials.forEach(m => m.dispose());
 }
+
+// Skin areas a slim (3px) arm leaves unused: the last column of each face shifts left,
+// freeing 2 columns at the end of the top/bottom row and of the side strip
+export const SLIM_UNUSED_RECTS: { x: number; y: number; w: number; h: number }[] =
+  [[40, 16], [40, 32], [32, 48], [48, 48]].flatMap(([u, v]) => [
+    { x: u + 10, y: v,     w: 2, h: 4 },
+    { x: u + 14, y: v + 4, w: 2, h: 12 },
+  ]);
 
 // Body part UV region hints for the 2D editor overlay
 export const PART_REGIONS: { label: string; color: string; x: number; y: number; w: number; h: number }[] = [

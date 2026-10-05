@@ -11,16 +11,21 @@ ipcMain.on('set-dirty', (_event, value) => {
   dirty = Boolean(value);
 });
 
-ipcMain.handle('save-png', async (event, bytes) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  const { canceled, filePath } = await dialog.showSaveDialog(win, {
-    title: 'スキンを保存',
-    defaultPath: 'minecraft_skin.png',
-    filters: [{ name: 'PNG', extensions: ['png'] }],
-  });
-  if (canceled || !filePath) return false;
+// targetPath があればそこへ上書き、なければ保存先を聞く。保存したパスを返す（キャンセル時は null）
+ipcMain.handle('save-png', async (event, bytes, targetPath, defaultPath) => {
+  let filePath = targetPath;
+  if (!filePath) {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showSaveDialog(win, {
+      title: 'スキンを保存',
+      defaultPath: defaultPath || 'minecraft_skin.png',
+      filters: [{ name: 'PNG', extensions: ['png'] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    filePath = result.filePath;
+  }
   await fs.writeFile(filePath, Buffer.from(bytes));
-  return true;
+  return filePath;
 });
 
 function createWindow() {

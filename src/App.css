@@ -35,6 +35,12 @@
   letter-spacing: 0.5px;
 }
 
+.file-name {
+  font-size: 12px;
+  color: #8080b0;
+  margin-left: 6px;
+}
+
 .unsaved-badge {
   font-size: 10px;
   color: #ffcc66;

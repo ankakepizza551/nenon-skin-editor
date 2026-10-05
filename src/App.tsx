@@ -4,18 +4,24 @@ import Preview3D from './components/Preview3D';
 import Toolbar from './components/Toolbar';
 import type { SkinModel, Tool } from './types';
 import { SKIN_W, SKIN_H, createEmptySkin } from './types';
+import { createDefaultSkin } from './utils/defaultSkin';
 import { LEGACY_SKIN_H, convertLegacySkin, detectModel } from './utils/skinConvert';
 import './App.css';
 
 const MAX_UNDO = 30;
+const MAX_RECENT_COLORS = 10;
 
 export default function App() {
-  const [pixelData, setPixelData] = useState<Uint8ClampedArray>(createEmptySkin);
+  const [pixelData, setPixelData] = useState<Uint8ClampedArray>(createDefaultSkin);
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#ff5500');
+  const [recentColors, setRecentColors] = useState<string[]>([]);
   const [model, setModel] = useState<SkinModel>('classic');
   const [showRegions, setShowRegions] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(true);
   const [dirty, setDirty] = useState(false);
+  // File that Ctrl+S overwrites (desktop app only)
+  const [filePath, setFilePath] = useState<string | null>(null);
   const undoStack = useRef<Uint8ClampedArray[]>([]);
   const redoStack = useRef<Uint8ClampedArray[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -38,6 +44,10 @@ export default function App() {
 
   const handlePixelChange = useCallback((pixels: Uint8ClampedArray) => {
     setPixelData(pixels);
+  }, []);
+
+  const handleColorUsed = useCallback((hex: string) => {
+    setRecentColors(prev => (prev[0] === hex ? prev : [hex, ...prev.filter(c => c !== hex)].slice(0, MAX_RECENT_COLORS)));
   }, []);
 
   const handleUndo = useCallback(() => {
@@ -66,7 +76,7 @@ export default function App() {
     setPixelData(createEmptySkin());
   }, [handleStrokeStart]);
 
-  const handleExport = useCallback(async () => {
+  const save = useCallback(async (saveAs: boolean) => {
     const canvas = document.createElement('canvas');
     canvas.width = SKIN_W;
     canvas.height = SKIN_H;
@@ -78,8 +88,12 @@ export default function App() {
 
     if (window.electronAPI) {
       try {
-        const saved = await window.electronAPI.savePng(new Uint8Array(await blob.arrayBuffer()));
-        if (saved) setDirty(false);
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const savedPath = await window.electronAPI.savePng(bytes, saveAs ? null : filePath, filePath);
+        if (savedPath) {
+          setFilePath(savedPath);
+          setDirty(false);
+        }
       } catch {
         alert('保存に失敗しました。');
       }
@@ -93,15 +107,17 @@ export default function App() {
     link.click();
     URL.revokeObjectURL(url);
     setDirty(false);
-  }, []);
+  }, [filePath]);
+
+  const handleSave = useCallback(() => { save(false); }, [save]);
+  const handleSaveAs = useCallback(() => { save(true); }, [save]);
 
   const handleImport = useCallback(() => {
     importRef.current?.click();
   }, []);
 
-  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const loadSkinFile = useCallback((file: File) => {
+    const path = window.electronAPI?.getPathForFile(file) || null;
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
@@ -121,8 +137,10 @@ export default function App() {
       handleStrokeStart();
       setPixelData(pixels);
       setModel(isLegacy ? 'classic' : detectModel(pixels));
-      // 旧形式は変換した時点で元ファイルと内容が変わるので未保存扱いのままにする
+      // 旧形式は変換した時点で元ファイルと内容が変わるので、未保存扱いにして
+      // 元ファイルを黙って上書きしないよう保存先も引き継がない
       setDirty(isLegacy);
+      setFilePath(isLegacy ? null : path);
       URL.revokeObjectURL(url);
     };
     img.onerror = () => {
@@ -130,8 +148,24 @@ export default function App() {
       URL.revokeObjectURL(url);
     };
     img.src = url;
-    e.target.value = '';
   }, [handleStrokeStart]);
+
+  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) loadSkinFile(file);
+    e.target.value = '';
+  }, [loadSkinFile]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    if (file.type !== 'image/png') {
+      alert('PNG ファイルをドロップしてください。');
+      return;
+    }
+    loadSkinFile(file);
+  }, [loadSkinFile]);
 
   // Warn before losing unsaved work. Electron shows its own dialog from the main
   // process; a beforeunload handler there would just silently block the close.
@@ -154,7 +188,7 @@ export default function App() {
       if (e.ctrlKey) {
         if (key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
         else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); handleRedo(); }
-        else if (key === 's') { e.preventDefault(); handleExport(); }
+        else if (key === 's') { e.preventDefault(); save(e.shiftKey); }
         return;
       }
       if (e.metaKey || e.altKey) return;
@@ -167,14 +201,17 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [handleUndo, handleRedo, handleExport]);
+  }, [handleUndo, handleRedo, save]);
+
+  const fileName = filePath ? filePath.split(/[\\/]/).pop() : null;
 
   return (
-    <div className="app">
+    <div className="app" onDragOver={e => e.preventDefault()} onDrop={handleDrop}>
       <header className="app-header">
         <div className="app-title">
           <span className="app-icon">⛏️</span>
           <h1>Minecraft Skin Editor</h1>
+          {fileName && <span className="file-name" title={filePath ?? undefined}>{fileName}</span>}
           {dirty && <span className="unsaved-badge">未保存</span>}
         </div>
         <div className="app-header-actions">
@@ -188,11 +225,15 @@ export default function App() {
           onToolChange={setTool}
           color={color}
           onColorChange={setColor}
+          recentColors={recentColors}
           model={model}
           onModelChange={setModel}
           showRegions={showRegions}
           onToggleRegions={() => setShowRegions(v => !v)}
-          onExport={handleExport}
+          showOverlay={showOverlay}
+          onToggleOverlay={() => setShowOverlay(v => !v)}
+          onSave={handleSave}
+          onSaveAs={window.electronAPI ? handleSaveAs : undefined}
           onImport={handleImport}
           onClear={handleClear}
           onUndo={handleUndo}
@@ -205,13 +246,15 @@ export default function App() {
           pixelData={pixelData}
           tool={tool}
           color={color}
+          model={model}
           showRegions={showRegions}
           onStrokeStart={handleStrokeStart}
           onPixelChange={handlePixelChange}
           onColorPick={setColor}
+          onColorUsed={handleColorUsed}
         />
 
-        <Preview3D pixelData={pixelData} model={model} />
+        <Preview3D pixelData={pixelData} model={model} showOverlay={showOverlay} />
       </div>
 
       <input

@@ -1,27 +1,35 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
-import type { Tool } from '../types';
+import type { SkinModel, Tool } from '../types';
 import { SKIN_W, SKIN_H, hexToRgba, rgbaToHex } from '../types';
-import { PART_REGIONS } from '../utils/skinLayout';
+import { PART_REGIONS, SLIM_UNUSED_RECTS } from '../utils/skinLayout';
 
 interface Props {
   pixelData: Uint8ClampedArray;
   tool: Tool;
   color: string;
+  model: SkinModel;
   showRegions: boolean;
   onStrokeStart: () => void;
   onPixelChange: (pixels: Uint8ClampedArray) => void;
   onColorPick: (hex: string) => void;
+  onColorUsed: (hex: string) => void;
 }
 
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 32;
 
-export default function Editor({ pixelData, tool, color, showRegions, onStrokeStart, onPixelChange, onColorPick }: Props) {
+export default function Editor({
+  pixelData, tool, color, model, showRegions,
+  onStrokeStart, onPixelChange, onColorPick, onColorUsed,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(8);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const isDrawing = useRef(false);
+  // The undo snapshot is taken on the first pixel a stroke actually changes,
+  // so clicking outside the skin does not use up an undo step
+  const strokeCommitted = useRef(false);
   const lastPixel = useRef<{ x: number; y: number } | null>(null);
   const panStart = useRef<{ mx: number; my: number; ox: number; oy: number } | null>(null);
   const workingPixels = useRef<Uint8ClampedArray | null>(null);
@@ -36,28 +44,28 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
 
     ctx.clearRect(0, 0, W, H);
 
-    // Checkerboard background
-    const cSize = zoom >= 4 ? zoom : 4;
-    for (let cy = 0; cy < H; cy += cSize) {
-      for (let cx = 0; cx < W; cx += cSize) {
-        const even = ((Math.floor(cx / cSize) + Math.floor(cy / cSize)) % 2 === 0);
-        ctx.fillStyle = even ? '#888' : '#666';
-        ctx.fillRect(cx, cy, cSize, cSize);
+    // Checkerboard (one cell per skin pixel) with the skin pixels on top
+    for (let py = 0; py < SKIN_H; py++) {
+      for (let px = 0; px < SKIN_W; px++) {
+        const x = offset.x + px * zoom;
+        const y = offset.y + py * zoom;
+        const idx = (py * SKIN_W + px) * 4;
+        const a = pixelData[idx + 3];
+        if (a < 255) {
+          ctx.fillStyle = (px + py) % 2 === 0 ? '#888' : '#666';
+          ctx.fillRect(x, y, zoom, zoom);
+        }
+        if (a === 0) continue;
+        ctx.fillStyle = `rgba(${pixelData[idx]},${pixelData[idx + 1]},${pixelData[idx + 2]},${a / 255})`;
+        ctx.fillRect(x, y, zoom, zoom);
       }
     }
 
-    // Skin pixels
-    for (let py = 0; py < SKIN_H; py++) {
-      for (let px = 0; px < SKIN_W; px++) {
-        const idx = (py * SKIN_W + px) * 4;
-        const r = pixelData[idx], g = pixelData[idx + 1], b = pixelData[idx + 2], a = pixelData[idx + 3];
-        if (a === 0) continue;
-        ctx.fillStyle = `rgba(${r},${g},${b},${a / 255})`;
-        ctx.fillRect(
-          offset.x + px * zoom,
-          offset.y + py * zoom,
-          zoom, zoom
-        );
+    // Columns a slim (3px) arm does not use
+    if (model === 'slim') {
+      ctx.fillStyle = 'rgba(10,10,24,0.75)';
+      for (const r of SLIM_UNUSED_RECTS) {
+        ctx.fillRect(offset.x + r.x * zoom, offset.y + r.y * zoom, r.w * zoom, r.h * zoom);
       }
     }
 
@@ -107,7 +115,7 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
         }
       }
     }
-  }, [pixelData, zoom, offset, showRegions]);
+  }, [pixelData, zoom, offset, model, showRegions]);
 
   const renderRef = useRef(render);
   useEffect(() => {
@@ -115,7 +123,7 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
     render();
   }, [render]);
 
-  // Fit skin in view on mount / resize
+  // Fit skin in view on mount
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -142,7 +150,7 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
     return () => ro.disconnect();
   }, []);
 
-  const getSkinCoords = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const getSkinCoords = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
@@ -152,6 +160,7 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
     return { px, py, mx, my };
   }, [offset, zoom]);
 
+  // Returns true when the pixel was inside the skin
   const drawPixel = useCallback((px: number, py: number, pixels: Uint8ClampedArray): boolean => {
     if (px < 0 || py < 0 || px >= SKIN_W || py >= SKIN_H) return false;
     const idx = (py * SKIN_W + px) * 4;
@@ -164,11 +173,12 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
     return true;
   }, [tool, color]);
 
-  const floodFill = useCallback((startX: number, startY: number, pixels: Uint8ClampedArray) => {
+  // Returns true when anything was filled
+  const floodFill = useCallback((startX: number, startY: number, pixels: Uint8ClampedArray): boolean => {
     const idx = (startY * SKIN_W + startX) * 4;
     const tr = pixels[idx], tg = pixels[idx + 1], tb = pixels[idx + 2], ta = pixels[idx + 3];
     const [fr, fg, fb, fa] = hexToRgba(color);
-    if (tr === fr && tg === fg && tb === fb && ta === fa) return;
+    if (tr === fr && tg === fg && tb === fb && ta === fa) return false;
 
     const stack = [[startX, startY]];
     while (stack.length) {
@@ -179,33 +189,50 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
       pixels[i] = fr; pixels[i + 1] = fg; pixels[i + 2] = fb; pixels[i + 3] = fa;
       stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
     }
+    return true;
   }, [color]);
 
-  const drawLine = useCallback((x0: number, y0: number, x1: number, y1: number, pixels: Uint8ClampedArray) => {
+  // Returns true when any pixel of the line was inside the skin
+  const drawLine = useCallback((x0: number, y0: number, x1: number, y1: number, pixels: Uint8ClampedArray): boolean => {
     const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
     const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
     let err = dx - dy;
+    let drawn = false;
     while (true) {
-      drawPixel(x0, y0, pixels);
+      if (drawPixel(x0, y0, pixels)) drawn = true;
       if (x0 === x1 && y0 === y1) break;
       const e2 = 2 * err;
       if (e2 > -dy) { err -= dy; x0 += sx; }
       if (e2 < dx) { err += dx; y0 += sy; }
     }
+    return drawn;
   }, [drawPixel]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const commitStroke = useCallback(() => {
+    if (!workingPixels.current) return;
+    if (!strokeCommitted.current) {
+      strokeCommitted.current = true;
+      onStrokeStart();
+      if (tool === 'pen') onColorUsed(color);
+    }
+    onPixelChange(new Uint8ClampedArray(workingPixels.current));
+  }, [tool, color, onStrokeStart, onPixelChange, onColorUsed]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       // Middle click or Alt+Click → pan
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
       panStart.current = { mx: e.clientX, my: e.clientY, ox: offset.x, oy: offset.y };
       return;
     }
     if (e.button !== 0) return;
 
     const { px, py } = getSkinCoords(e);
+    const inside = px >= 0 && py >= 0 && px < SKIN_W && py < SKIN_H;
 
     if (tool === 'eyedropper') {
-      if (px >= 0 && py >= 0 && px < SKIN_W && py < SKIN_H) {
+      if (inside) {
         const idx = (py * SKIN_W + px) * 4;
         if (pixelData[idx + 3] > 0) {
           onColorPick(rgbaToHex(pixelData[idx], pixelData[idx + 1], pixelData[idx + 2]));
@@ -215,24 +242,27 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
     }
 
     if (tool === 'fill') {
-      if (px >= 0 && py >= 0 && px < SKIN_W && py < SKIN_H) {
-        onStrokeStart();
+      if (inside) {
         const next = new Uint8ClampedArray(pixelData);
-        floodFill(px, py, next);
-        onPixelChange(next);
+        if (floodFill(px, py, next)) {
+          onStrokeStart();
+          onColorUsed(color);
+          onPixelChange(next);
+        }
       }
       return;
     }
 
-    onStrokeStart();
+    // Keep receiving moves when the cursor leaves the canvas mid-stroke
+    e.currentTarget.setPointerCapture(e.pointerId);
     isDrawing.current = true;
+    strokeCommitted.current = false;
     workingPixels.current = new Uint8ClampedArray(pixelData);
     lastPixel.current = { x: px, y: py };
-    drawPixel(px, py, workingPixels.current);
-    onPixelChange(new Uint8ClampedArray(workingPixels.current));
-  }, [getSkinCoords, tool, pixelData, offset, drawPixel, floodFill, onStrokeStart, onPixelChange, onColorPick]);
+    if (drawPixel(px, py, workingPixels.current)) commitStroke();
+  }, [getSkinCoords, tool, color, pixelData, offset, drawPixel, floodFill, commitStroke, onStrokeStart, onPixelChange, onColorPick, onColorUsed]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (panStart.current) {
       const dx = e.clientX - panStart.current.mx;
       const dy = e.clientY - panStart.current.my;
@@ -244,13 +274,13 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
     const { px, py } = getSkinCoords(e);
     const last = lastPixel.current;
     if (last && (px !== last.x || py !== last.y)) {
-      drawLine(last.x, last.y, px, py, workingPixels.current);
+      const drawn = drawLine(last.x, last.y, px, py, workingPixels.current);
       lastPixel.current = { x: px, y: py };
-      onPixelChange(new Uint8ClampedArray(workingPixels.current));
+      if (drawn) commitStroke();
     }
-  }, [getSkinCoords, drawLine, onPixelChange]);
+  }, [getSkinCoords, drawLine, commitStroke]);
 
-  const handleMouseUp = useCallback(() => {
+  const handlePointerUp = useCallback(() => {
     isDrawing.current = false;
     workingPixels.current = null;
     lastPixel.current = null;
@@ -258,7 +288,6 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
   }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
@@ -267,10 +296,10 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
     const delta = e.deltaY < 0 ? 1 : -1;
     const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom + delta * Math.ceil(zoom * 0.2)));
 
-    // Zoom toward mouse position
+    // Zoom toward mouse position; whole-pixel offsets keep the grid crisp
     setOffset(prev => ({
-      x: mx - (mx - prev.x) * (newZoom / zoom),
-      y: my - (my - prev.y) * (newZoom / zoom),
+      x: Math.round(mx - (mx - prev.x) * (newZoom / zoom)),
+      y: Math.round(my - (my - prev.y) * (newZoom / zoom)),
     }));
     setZoom(newZoom);
   }, [zoom]);
@@ -280,10 +309,10 @@ export default function Editor({ pixelData, tool, color, showRegions, onStrokeSt
       <canvas
         ref={canvasRef}
         className="editor-canvas"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onWheel={handleWheel}
       />
       <div className="editor-zoom-label">×{zoom}</div>
