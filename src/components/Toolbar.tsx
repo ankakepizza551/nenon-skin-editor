@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { SkinModel, Tool } from '../types';
+import type { BodySide } from '../utils/skinMirror';
 
 interface Props {
   tool: Tool;
@@ -21,6 +22,8 @@ interface Props {
   /** Only available in the desktop app, where saving goes to a remembered file */
   onSaveAs?: () => void;
   onImport: () => void;
+  /** Copy one half of the character (its own right/left) onto the other, mirrored */
+  onMirrorHalf: (from: BodySide) => void;
   onClear: () => void;
   onUndo: () => void;
   canUndo: boolean;
@@ -38,6 +41,8 @@ const TOOLS: { id: Tool; icon: string; label: string; key: string }[] = [
   { id: 'eraser',     icon: '🧹', label: '消しゴム (E)',  key: 'E' },
   { id: 'fill',       icon: '🪣', label: '塗りつぶし (F)', key: 'F' },
   { id: 'eyedropper', icon: '💉', label: 'スポイト (I)',   key: 'I' },
+  { id: 'lighten',    icon: '☀️', label: '明るく (L)：なぞった所を一段明るくする', key: 'L' },
+  { id: 'darken',     icon: '🌙', label: '暗く (D)：なぞった所を一段暗くする',     key: 'D' },
 ];
 
 const PALETTE_COLORS = [
@@ -53,7 +58,7 @@ export default function Toolbar({
   tool, onToolChange, color, onColorChange, recentColors,
   model, onModelChange, mirror, onToggleMirror, shade, onToggleShade,
   showRegions, onToggleRegions, showOverlay, onToggleOverlay,
-  onSave, onSaveAs, onImport, onClear, onUndo, canUndo, onRedo, canRedo,
+  onSave, onSaveAs, onImport, onMirrorHalf, onClear, onUndo, canUndo, onRedo, canRedo,
 }: Props) {
   const colorInputRef = useRef<HTMLInputElement>(null);
 
@@ -195,6 +200,25 @@ export default function Toolbar({
           title="3Dプレビューの重ね着レイヤーを表示"
         >
           🧥 重ね着表示
+        </button>
+      </section>
+
+      {/* Whole-body operations */}
+      <section className="toolbar-section">
+        <div className="toolbar-label">反転コピー</div>
+        <button
+          className="action-btn"
+          onClick={() => onMirrorHalf('right')}
+          title="キャラクター自身から見た右半身（右腕・右脚と、頭・胴の右半分）を、左半身へ鏡写しでコピー"
+        >
+          🪞 右半身 → 左半身
+        </button>
+        <button
+          className="action-btn"
+          onClick={() => onMirrorHalf('left')}
+          title="キャラクター自身から見た左半身（左腕・左脚と、頭・胴の左半分）を、右半身へ鏡写しでコピー"
+        >
+          🪞 左半身 → 右半身
         </button>
       </section>
 

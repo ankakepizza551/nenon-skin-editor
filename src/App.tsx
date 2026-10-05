@@ -5,6 +5,8 @@ import Toolbar from './components/Toolbar';
 import type { SkinModel, SkinPixel, Tool } from './types';
 import { SKIN_W, SKIN_H, createEmptySkin } from './types';
 import { useSkinPainter } from './hooks/useSkinPainter';
+import type { BodySide } from './utils/skinMirror';
+import { mirrorHalf } from './utils/skinOps';
 import { createDefaultSkin } from './utils/defaultSkin';
 import { LEGACY_SKIN_H, convertLegacySkin, detectModel } from './utils/skinConvert';
 import './App.css';
@@ -85,6 +87,11 @@ export default function App() {
     setCanRedo(redoStack.current.length > 0);
     setDirty(true);
   }, []);
+
+  const handleMirrorHalf = useCallback((from: BodySide) => {
+    handleStrokeStart();
+    setPixelData(mirrorHalf(pixelDataRef.current, model, from));
+  }, [handleStrokeStart, model]);
 
   const handleClear = useCallback(() => {
     if (!confirm('スキンデータを全クリアしますか？')) return;
@@ -213,6 +220,8 @@ export default function App() {
         case 'e': setTool('eraser'); break;
         case 'f': setTool('fill'); break;
         case 'i': setTool('eyedropper'); break;
+        case 'l': setTool('lighten'); break;
+        case 'd': setTool('darken'); break;
         case 'm': setMirror(v => !v); break;
         case 'n': setShade(v => !v); break;
       }
@@ -233,7 +242,7 @@ export default function App() {
           {dirty && <span className="unsaved-badge">未保存</span>}
         </div>
         <div className="app-header-actions">
-          <span className="shortcut-hint">P: ペン  E: 消しゴム  F: 塗りつぶし  I: スポイト  M: 左右対称  N: 色むら  Ctrl+Z: 元に戻す  Ctrl+Y: やり直す  Ctrl+S: 保存</span>
+          <span className="shortcut-hint">P: ペン  E: 消しゴム  F: 塗りつぶし  I: スポイト  L/D: 明るく/暗く  M: 左右対称  N: 色むら  Ctrl+Z: 元に戻す  Ctrl+Y: やり直す  Ctrl+S: 保存</span>
         </div>
       </header>
 
@@ -257,6 +266,7 @@ export default function App() {
           onSave={handleSave}
           onSaveAs={window.electronAPI ? handleSaveAs : undefined}
           onImport={handleImport}
+          onMirrorHalf={handleMirrorHalf}
           onClear={handleClear}
           onUndo={handleUndo}
           canUndo={canUndo}

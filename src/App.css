@@ -272,6 +272,8 @@
 .editor-container[data-tool="eraser"] { cursor: cell; }
 .editor-container[data-tool="fill"] { cursor: copy; }
 .editor-container[data-tool="eyedropper"] { cursor: zoom-in; }
+.editor-container[data-tool="lighten"],
+.editor-container[data-tool="darken"] { cursor: cell; }
 
 .editor-canvas {
   display: block;

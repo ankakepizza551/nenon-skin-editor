@@ -9,7 +9,7 @@ interface Options {
   tool: Tool;
   color: string;
   model: SkinModel;
-  /** Pen and eraser also paint the left-right mirror image on the character */
+  /** Brush tools also paint the left-right mirror image on the character */
   mirror: boolean;
   /** Pen and fill vary the brightness of each pixel a little */
   shade: boolean;
@@ -34,6 +34,8 @@ export interface SkinPainter {
 
 // How far the shading pen moves brightness either way
 const SHADE_STRENGTH = 0.12;
+// How much one pass of the lighten / darken brush changes a pixel
+const TONE_STEP = 0.12;
 
 // Stable pseudo-random value in [0, 1) per pixel and stroke, so re-plotting a pixel
 // during the same stroke does not change its shade
@@ -56,8 +58,19 @@ export function useSkinPainter({
   const committed = useRef(false);
   const last = useRef<SkinPixel | null>(null);
   const seed = useRef(0);
+  // Pixels the lighten / darken brush already changed in this stroke: one step per stroke
+  const toned = useRef(new Uint8Array(SKIN_W * SKIN_H));
 
   const faces = useMemo(() => getSkinFaces(model), [model]);
+
+  // Face index per skin pixel (-1 outside every face); the fill tool stays inside one region
+  const regions = useMemo(() => {
+    const map = new Int16Array(SKIN_W * SKIN_H).fill(-1);
+    faces.forEach((f, i) => {
+      for (let y = f.y; y < f.y + f.h; y++) map.fill(i, y * SKIN_W + f.x, y * SKIN_W + f.x + f.w);
+    });
+    return map;
+  }, [faces]);
 
   const colorAt = useCallback((x: number, y: number): [number, number, number, number] => {
     if (tool === 'eraser') return [0, 0, 0, 0];
@@ -67,23 +80,36 @@ export function useSkinPainter({
     return [r * f, g * f, b * f, a];
   }, [tool, color, shade]);
 
-  // Returns true when the pixel was inside the skin
+  // Apply the brush at one pixel. Returns true when the pixel was changed.
+  const paint = useCallback((x: number, y: number, pixels: Uint8ClampedArray, source: [number, number, number, number]): boolean => {
+    const idx = (y * SKIN_W + x) * 4;
+    if (tool === 'lighten' || tool === 'darken') {
+      if (pixels[idx + 3] === 0 || toned.current[y * SKIN_W + x]) return false;
+      toned.current[y * SKIN_W + x] = 1;
+      for (let c = 0; c < 3; c++) {
+        const v = pixels[idx + c];
+        pixels[idx + c] = tool === 'lighten' ? v + (255 - v) * TONE_STEP : v * (1 - TONE_STEP);
+      }
+      return true;
+    }
+    pixels[idx] = source[0]; pixels[idx + 1] = source[1]; pixels[idx + 2] = source[2]; pixels[idx + 3] = source[3];
+    return true;
+  }, [tool]);
+
+  // Returns true when a pixel was changed
   const plot = useCallback((px: number, py: number, pixels: Uint8ClampedArray): boolean => {
     if (!isInside(px, py)) return false;
-    const [r, g, b, a] = colorAt(px, py);
-    const put = (x: number, y: number) => {
-      const idx = (y * SKIN_W + x) * 4;
-      pixels[idx] = r; pixels[idx + 1] = g; pixels[idx + 2] = b; pixels[idx + 3] = a;
-    };
-    put(px, py);
+    // The mirrored pixel gets the same shade, so both halves stay symmetric
+    const source = colorAt(px, py);
+    let changed = paint(px, py, pixels, source);
     if (mirror) {
       const mirrored = mirrorPixel(px, py, model);
-      if (mirrored) put(mirrored[0], mirrored[1]);
+      if (mirrored && paint(mirrored[0], mirrored[1], pixels, source)) changed = true;
     }
-    return true;
-  }, [colorAt, mirror, model]);
+    return changed;
+  }, [colorAt, paint, mirror, model]);
 
-  // Returns true when any pixel of the line was inside the skin
+  // Returns true when any pixel of the line was changed
   const line = useCallback((x0: number, y0: number, x1: number, y1: number, pixels: Uint8ClampedArray): boolean => {
     const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
     const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
@@ -99,28 +125,31 @@ export function useSkinPainter({
     return drawn;
   }, [plot]);
 
-  // Returns true when anything was filled
+  // Fill the connected same-colored area, without leaving the face it starts on.
+  // Returns true when anything was filled.
   const floodFill = useCallback((startX: number, startY: number, pixels: Uint8ClampedArray): boolean => {
     const idx = (startY * SKIN_W + startX) * 4;
     const tr = pixels[idx], tg = pixels[idx + 1], tb = pixels[idx + 2], ta = pixels[idx + 3];
     const [fr, fg, fb, fa] = hexToRgba(color);
     if (!shade && tr === fr && tg === fg && tb === fb && ta === fa) return false;
 
+    const region = regions[startY * SKIN_W + startX];
     // Shaded fill colors can land back on the target color, so track visits explicitly
     const visited = new Uint8Array(SKIN_W * SKIN_H);
     const stack = [[startX, startY]];
     while (stack.length) {
       const [x, y] = stack.pop()!;
-      if (!isInside(x, y) || visited[y * SKIN_W + x]) continue;
-      const i = (y * SKIN_W + x) * 4;
+      const p = y * SKIN_W + x;
+      if (!isInside(x, y) || visited[p] || regions[p] !== region) continue;
+      const i = p * 4;
       if (pixels[i] !== tr || pixels[i + 1] !== tg || pixels[i + 2] !== tb || pixels[i + 3] !== ta) continue;
-      visited[y * SKIN_W + x] = 1;
+      visited[p] = 1;
       const [r, g, b, a] = colorAt(x, y);
       pixels[i] = r; pixels[i + 1] = g; pixels[i + 2] = b; pixels[i + 3] = a;
       stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
     }
     return true;
-  }, [color, shade, colorAt]);
+  }, [color, shade, colorAt, regions]);
 
   const commit = useCallback(() => {
     if (!working.current) return;
@@ -158,6 +187,7 @@ export function useSkinPainter({
     }
 
     committed.current = false;
+    toned.current.fill(0);
     working.current = new Uint8ClampedArray(pixelData);
     last.current = { x: px, y: py };
     if (plot(px, py, working.current)) commit();
