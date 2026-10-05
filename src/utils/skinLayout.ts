@@ -187,10 +187,22 @@ export function setOverlayVisible(character: THREE.Group, visible: boolean) {
   });
 }
 
-/** Swing arms and legs by `angle` radians (0 = standing still) */
-export function poseWalk(character: THREE.Group, angle: number) {
+// Sideways angle of each limb in the spread pose: arms straight out, legs slightly apart
+const SPREAD_ANGLES: Record<string, number> = {
+  右腕: -Math.PI / 2,
+  左腕: Math.PI / 2,
+  右脚: -0.25,
+  左脚: 0.25,
+};
+
+/**
+ * Pose the limbs: `swing` radians back and forth (the walk cycle), and
+ * `spread` from 0 (hanging down) to 1 (arms out, legs apart).
+ */
+export function poseCharacter(character: THREE.Group, swing: number, spread: number) {
   for (const pivot of character.children) {
-    pivot.rotation.x = angle * (pivot.userData.swing as number);
+    pivot.rotation.x = swing * (pivot.userData.swing as number);
+    pivot.rotation.z = spread * (SPREAD_ANGLES[pivot.userData.part as string] ?? 0);
   }
 }
 

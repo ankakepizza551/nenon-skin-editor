@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import Editor from './components/Editor';
 import Preview3D from './components/Preview3D';
+import ReferenceImage from './components/ReferenceImage';
 import Toolbar from './components/Toolbar';
+import { loadPrefs, savePrefs } from './utils/prefs';
 import type { SkinModel, SkinPixel, Tool } from './types';
 import { MAX_BRUSH_SIZE, SKIN_W, SKIN_H, createEmptySkin } from './types';
 import { useSkinPainter } from './hooks/useSkinPainter';
@@ -35,6 +37,31 @@ export default function App() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
+  const referenceRef = useRef<HTMLInputElement>(null);
+  const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
+  const [customPalette, setCustomPalette] = useState<string[]>(() => loadPrefs().customPalette);
+
+  const updateCustomPalette = useCallback((next: string[]) => {
+    setCustomPalette(next);
+    savePrefs({ customPalette: next });
+  }, []);
+
+  const handleReferenceFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setReferenceUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  }, []);
+
+  const closeReference = useCallback(() => {
+    setReferenceUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, []);
 
   const pixelDataRef = useRef<Uint8ClampedArray>(pixelData);
   useEffect(() => { pixelDataRef.current = pixelData; }, [pixelData]);
@@ -263,6 +290,12 @@ export default function App() {
           color={color}
           onColorChange={setColor}
           recentColors={recentColors}
+          customPalette={customPalette}
+          onAddCustomColor={() => {
+            if (!customPalette.includes(color)) updateCustomPalette([...customPalette, color]);
+          }}
+          onRemoveCustomColor={c => updateCustomPalette(customPalette.filter(x => x !== c))}
+          onOpenReference={() => referenceRef.current?.click()}
           brushSize={brushSize}
           onBrushSizeChange={setBrushSize}
           model={model}
@@ -298,8 +331,18 @@ export default function App() {
         />
 
         <Preview3D pixelData={pixelData} model={model} showOverlay={showOverlay} hover={hover} onHover={handleHover} painter={painter} />
+        {referenceUrl && (
+          <ReferenceImage url={referenceUrl} onColorPick={setColor} onClose={closeReference} />
+        )}
       </div>
 
+      <input
+        ref={referenceRef}
+        type="file"
+        accept="image/*"
+        onChange={handleReferenceFile}
+        style={{ display: 'none' }}
+      />
       <input
         ref={importRef}
         type="file"

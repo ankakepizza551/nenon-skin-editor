@@ -9,6 +9,11 @@ interface Props {
   color: string;
   onColorChange: (c: string) => void;
   recentColors: string[];
+  /** Colors the user saved; kept between launches */
+  customPalette: string[];
+  onAddCustomColor: () => void;
+  onRemoveCustomColor: (c: string) => void;
+  onOpenReference: () => void;
   brushSize: number;
   onBrushSizeChange: (size: number) => void;
   model: SkinModel;
@@ -60,7 +65,9 @@ const PALETTE_COLORS = [
 ];
 
 export default function Toolbar({
-  tool, onToolChange, color, onColorChange, recentColors, brushSize, onBrushSizeChange,
+  tool, onToolChange, color, onColorChange, recentColors,
+  customPalette, onAddCustomColor, onRemoveCustomColor, onOpenReference,
+  brushSize, onBrushSizeChange,
   model, onModelChange, mirror, onToggleMirror, shade, onToggleShade,
   showRegions, onToggleRegions, showOverlay, onToggleOverlay,
   onSave, onSaveAs, onImport, onMirrorHalf, onClear, onUndo, canUndo, onRedo, canRedo,
@@ -167,6 +174,30 @@ export default function Toolbar({
         </div>
       </section>
 
+      {/* Saved colors */}
+      <section className="toolbar-section">
+        <div className="toolbar-label">マイパレット</div>
+        <div className="palette-grid">
+          {customPalette.map(c => (
+            <button
+              key={c}
+              className={`palette-btn ${color === c ? 'selected' : ''}`}
+              style={{ background: c }}
+              onClick={() => onColorChange(c)}
+              onContextMenu={e => { e.preventDefault(); onRemoveCustomColor(c); }}
+              title={`${c}（右クリックで削除）`}
+            />
+          ))}
+          <button
+            className="palette-btn palette-add"
+            onClick={onAddCustomColor}
+            title="いまの色をマイパレットに追加"
+          >
+            ＋
+          </button>
+        </div>
+      </section>
+
       {/* Recent colors (colors actually painted with) */}
       {recentColors.length > 0 && (
         <section className="toolbar-section">
@@ -265,6 +296,13 @@ export default function Toolbar({
         )}
         <button className="action-btn" onClick={onImport}>
           📂 PNG を読込
+        </button>
+        <button
+          className="action-btn"
+          onClick={onOpenReference}
+          title="見本にする画像を、エディタの上に重ねて表示。画像をクリックすると色を取得"
+        >
+          🖼️ 参考画像を開く
         </button>
       </section>
 

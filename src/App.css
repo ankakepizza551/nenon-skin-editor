@@ -66,6 +66,78 @@
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
+}
+
+/* ── Reference image ─────────────────────────────── */
+.reference {
+  position: absolute;
+  z-index: 5;
+  background: #13132a;
+  border: 1px solid #3a3a6a;
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.reference-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 10px;
+  font-size: 11px;
+  color: #a0a0d0;
+  background: #1c1c35;
+  cursor: move;
+  user-select: none;
+}
+
+.reference-header input {
+  flex: 1;
+  min-width: 60px;
+  cursor: pointer;
+}
+
+.reference-header button {
+  border: none;
+  background: none;
+  color: #a0a0d0;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.reference-header button:hover {
+  background: #4a1a1a;
+  color: #ffaaaa;
+}
+
+/* Drag the corner to resize */
+.reference-body {
+  width: 260px;
+  height: 260px;
+  min-width: 120px;
+  min-height: 80px;
+  max-width: 70vw;
+  max-height: 75vh;
+  overflow: auto;
+  resize: both;
+}
+
+.reference-body img {
+  display: block;
+  width: 100%;
+  image-rendering: pixelated;
+  cursor: crosshair;
+}
+
+.palette-add {
+  border: 1px dashed #5050a0;
+  background: none;
+  color: #a0a0d0;
+  font-size: 12px;
+  line-height: 1;
 }
 
 /* ── Toolbar ─────────────────────────────────────── */
@@ -401,12 +473,13 @@
   background: rgba(30, 30, 58, 0.9);
   color: #c0c0e0;
   font-size: 11px;
-  padding: 4px 8px;
+  padding: 4px 6px;
   cursor: pointer;
 }
 
 .preview3d-segment button:first-child { border-radius: 4px 0 0 4px; }
-.preview3d-segment button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.preview3d-segment button:last-child { border-radius: 0 4px 4px 0; }
+.preview3d-segment button + button { border-left: none; }
 .preview3d-toggle { border-radius: 4px; }
 
 .preview3d-segment button:hover:not(:disabled),

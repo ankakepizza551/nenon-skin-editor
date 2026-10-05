@@ -3,11 +3,12 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { SkinPainter } from '../hooks/useSkinPainter';
 import {
-  PART_NAMES, buildCharacter, disposeCharacter, findSkinFace, getSkinFaces, poseWalk,
+  PART_NAMES, buildCharacter, disposeCharacter, findSkinFace, getSkinFaces, poseCharacter,
   setHiddenParts, setOverlayVisible,
 } from '../utils/skinLayout';
 import type { SkinModel, SkinPixel } from '../types';
 import { SKIN_W, SKIN_H } from '../types';
+import { loadPrefs, savePrefs } from '../utils/prefs';
 
 interface Props {
   pixelData: Uint8ClampedArray;
@@ -21,14 +22,28 @@ interface Props {
 
 type PaintLayer = 'base' | 'overlay';
 
+type Pose = 'stand' | 'walk' | 'spread';
+
+const POSES: { id: Pose; label: string; title: string }[] = [
+  { id: 'stand',  label: '立ち', title: '直立' },
+  { id: 'walk',   label: '歩行', title: '歩行アニメーション' },
+  { id: 'spread', label: '広げ', title: '腕を横に広げ、脚を少し開く（腕の内側や脇を確認）' },
+];
+
 // Arm/leg swing of the walk cycle
 const WALK_ANGLE = 0.7;
 const WALK_SPEED = 5;
 
+// Preview backdrops, dark to light, for checking both bright and dark skins
+const BACKGROUNDS = [0x1a1a2e, 0x7a7a88, 0xe6e6ee];
+
 export default function Preview3D({ pixelData, model, showOverlay, hover, onHover, painter }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
+    renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
+    camera: THREE.PerspectiveCamera;
+    controls: OrbitControls;
     skinCtx: CanvasRenderingContext2D;
     texture: THREE.CanvasTexture;
   } | null>(null);
@@ -36,7 +51,8 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
 
   // Which layer the cursor points at (and paints on) when the overlay is shown
   const [paintLayer, setPaintLayer] = useState<PaintLayer>('base');
-  const [walking, setWalking] = useState(false);
+  const [pose, setPose] = useState<Pose>('stand');
+  const [background, setBackground] = useState(() => loadPrefs().previewBackground % BACKGROUNDS.length);
   const [hiddenParts, setHiddenPartsState] = useState<ReadonlySet<string>>(new Set());
   const togglePart = (name: string) => {
     setHiddenPartsState(prev => {
@@ -48,10 +64,10 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
   const activeLayer: PaintLayer = showOverlay ? paintLayer : 'base';
 
   // Latest values for the handlers and render loop registered once on mount
-  const latest = useRef({ onHover, painter, activeLayer, walking });
+  const latest = useRef({ onHover, painter, activeLayer, pose });
   useEffect(() => {
-    latest.current = { onHover, painter, activeLayer, walking };
-  }, [onHover, painter, activeLayer, walking]);
+    latest.current = { onHover, painter, activeLayer, pose };
+  }, [onHover, painter, activeLayer, pose]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -64,7 +80,6 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(W, H);
-    renderer.setClearColor(0x1a1a2e, 1);
     mount.appendChild(renderer.domElement);
 
     // Scene
@@ -120,7 +135,12 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
       animId = requestAnimationFrame(animate);
       const character = characterRef.current;
       if (character) {
-        poseWalk(character, latest.current.walking ? Math.sin((time / 1000) * WALK_SPEED) * WALK_ANGLE : 0);
+        const { pose } = latest.current;
+        poseCharacter(
+          character,
+          pose === 'walk' ? Math.sin((time / 1000) * WALK_SPEED) * WALK_ANGLE : 0,
+          pose === 'spread' ? 1 : 0
+        );
       }
       controls.update();
       renderer.render(scene, camera);
@@ -202,7 +222,7 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
     canvas.addEventListener('pointercancel', onPointerUp);
     canvas.addEventListener('pointerleave', onPointerLeave);
 
-    sceneRef.current = { scene, skinCtx, texture };
+    sceneRef.current = { renderer, scene, camera, controls, skinCtx, texture };
 
     return () => {
       cancelAnimationFrame(animId);
@@ -218,6 +238,24 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
       sceneRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    sceneRef.current?.renderer.setClearColor(BACKGROUNDS[background], 1);
+    savePrefs({ previewBackground: background });
+  }, [background]);
+
+  // With the arms out the character is 36 wide: back the camera off if they would be cut off
+  useEffect(() => {
+    const ref = sceneRef.current;
+    if (!ref || pose !== 'spread') return;
+    const { camera, controls } = ref;
+    const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const needed = 40 / (2 * tanHalfFov * camera.aspect);
+    const fromTarget = camera.position.clone().sub(controls.target);
+    if (fromTarget.length() < needed) {
+      camera.position.copy(controls.target).add(fromTarget.setLength(needed));
+    }
+  }, [pose]);
 
   // (Re)build the character when the arm width changes
   useEffect(() => {
@@ -286,12 +324,24 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
             重ね着
           </button>
         </div>
+        <div className="preview3d-segment">
+          {POSES.map(p => (
+            <button
+              key={p.id}
+              className={pose === p.id ? 'active' : ''}
+              onClick={() => setPose(p.id)}
+              title={p.title}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
         <button
-          className={`preview3d-toggle ${walking ? 'active' : ''}`}
-          onClick={() => setWalking(v => !v)}
-          title="歩行アニメーション"
+          className="preview3d-toggle"
+          onClick={() => setBackground(b => (b + 1) % BACKGROUNDS.length)}
+          title="プレビューの背景色を切り替え"
         >
-          {walking ? '⏸ 停止' : '▶ 歩行'}
+          🌓
         </button>
       </div>
       <div ref={mountRef} className="preview3d-mount" />
