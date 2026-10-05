@@ -9,6 +9,8 @@ interface Props {
   recentColors: string[];
   model: SkinModel;
   onModelChange: (m: SkinModel) => void;
+  mirror: boolean;
+  onToggleMirror: () => void;
   showRegions: boolean;
   onToggleRegions: () => void;
   showOverlay: boolean;
@@ -47,7 +49,7 @@ const PALETTE_COLORS = [
 
 export default function Toolbar({
   tool, onToolChange, color, onColorChange, recentColors,
-  model, onModelChange,
+  model, onModelChange, mirror, onToggleMirror,
   showRegions, onToggleRegions, showOverlay, onToggleOverlay,
   onSave, onSaveAs, onImport, onClear, onUndo, canUndo, onRedo, canRedo,
 }: Props) {
@@ -78,6 +80,13 @@ export default function Toolbar({
             </button>
           ))}
         </div>
+        <button
+          className={`option-btn ${mirror ? 'active' : ''}`}
+          onClick={onToggleMirror}
+          title="ペンと消しゴムを、キャラクターの左右対称の位置にも適用 (M)"
+        >
+          🪞 左右対称
+        </button>
       </section>
 
       {/* Color picker */}

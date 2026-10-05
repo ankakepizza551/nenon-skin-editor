@@ -17,6 +17,7 @@ export default function App() {
   const [color, setColor] = useState('#ff5500');
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [model, setModel] = useState<SkinModel>('classic');
+  const [mirror, setMirror] = useState(false);
   const [showRegions, setShowRegions] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
   const [dirty, setDirty] = useState(false);
@@ -197,6 +198,7 @@ export default function App() {
         case 'e': setTool('eraser'); break;
         case 'f': setTool('fill'); break;
         case 'i': setTool('eyedropper'); break;
+        case 'm': setMirror(v => !v); break;
       }
     };
     window.addEventListener('keydown', onKey);
@@ -215,7 +217,7 @@ export default function App() {
           {dirty && <span className="unsaved-badge">未保存</span>}
         </div>
         <div className="app-header-actions">
-          <span className="shortcut-hint">P: ペン  E: 消しゴム  F: 塗りつぶし  I: スポイト  Ctrl+Z: 元に戻す  Ctrl+Y: やり直す  Ctrl+S: 保存</span>
+          <span className="shortcut-hint">P: ペン  E: 消しゴム  F: 塗りつぶし  I: スポイト  M: 左右対称  Ctrl+Z: 元に戻す  Ctrl+Y: やり直す  Ctrl+S: 保存</span>
         </div>
       </header>
 
@@ -228,6 +230,8 @@ export default function App() {
           recentColors={recentColors}
           model={model}
           onModelChange={setModel}
+          mirror={mirror}
+          onToggleMirror={() => setMirror(v => !v)}
           showRegions={showRegions}
           onToggleRegions={() => setShowRegions(v => !v)}
           showOverlay={showOverlay}
@@ -247,6 +251,7 @@ export default function App() {
           tool={tool}
           color={color}
           model={model}
+          mirror={mirror}
           showRegions={showRegions}
           onStrokeStart={handleStrokeStart}
           onPixelChange={handlePixelChange}

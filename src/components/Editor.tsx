@@ -2,12 +2,15 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import type { SkinModel, Tool } from '../types';
 import { SKIN_W, SKIN_H, hexToRgba, rgbaToHex } from '../types';
 import { PART_REGIONS, SLIM_UNUSED_RECTS } from '../utils/skinLayout';
+import { mirrorPixel } from '../utils/skinMirror';
 
 interface Props {
   pixelData: Uint8ClampedArray;
   tool: Tool;
   color: string;
   model: SkinModel;
+  /** Pen and eraser also paint the left-right mirror image on the character */
+  mirror: boolean;
   showRegions: boolean;
   onStrokeStart: () => void;
   onPixelChange: (pixels: Uint8ClampedArray) => void;
@@ -19,7 +22,7 @@ const MIN_ZOOM = 2;
 const MAX_ZOOM = 32;
 
 export default function Editor({
-  pixelData, tool, color, model, showRegions,
+  pixelData, tool, color, model, mirror, showRegions,
   onStrokeStart, onPixelChange, onColorPick, onColorUsed,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -163,15 +166,18 @@ export default function Editor({
   // Returns true when the pixel was inside the skin
   const drawPixel = useCallback((px: number, py: number, pixels: Uint8ClampedArray): boolean => {
     if (px < 0 || py < 0 || px >= SKIN_W || py >= SKIN_H) return false;
-    const idx = (py * SKIN_W + px) * 4;
-    if (tool === 'pen') {
-      const [r, g, b, a] = hexToRgba(color);
+    const [r, g, b, a] = tool === 'pen' ? hexToRgba(color) : [0, 0, 0, 0];
+    const put = (x: number, y: number) => {
+      const idx = (y * SKIN_W + x) * 4;
       pixels[idx] = r; pixels[idx + 1] = g; pixels[idx + 2] = b; pixels[idx + 3] = a;
-    } else if (tool === 'eraser') {
-      pixels[idx] = 0; pixels[idx + 1] = 0; pixels[idx + 2] = 0; pixels[idx + 3] = 0;
+    };
+    put(px, py);
+    if (mirror) {
+      const mirrored = mirrorPixel(px, py, model);
+      if (mirrored) put(mirrored[0], mirrored[1]);
     }
     return true;
-  }, [tool, color]);
+  }, [tool, color, mirror, model]);
 
   // Returns true when anything was filled
   const floodFill = useCallback((startX: number, startY: number, pixels: Uint8ClampedArray): boolean => {
