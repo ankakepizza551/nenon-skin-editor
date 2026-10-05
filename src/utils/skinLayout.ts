@@ -62,6 +62,7 @@ interface PartDef {
   base: [number, number];             // skin block of the base layer
   overlay: [number, number];          // skin block of the overlay layer
   inflate: number;                    // how much bigger the overlay box is
+  swing: number;                      // walk-cycle direction: 0 = fixed, ±1 = hinged at the top
 }
 
 // Feet-to-head: legs span y -6..6, body/arms 6..18, head 18..26.
@@ -70,12 +71,12 @@ function getParts(model: SkinModel): PartDef[] {
   const armW = model === 'slim' ? 3 : 4;
   const armX = 4 + armW / 2;
   return [
-    { name: '頭',   color: '#ff8a8a', size: [8, 8, 8],     pos: [0, 22, 0],     base: [0, 0],   overlay: [32, 0],  inflate: 1   },
-    { name: '胴',   color: '#8aa8ff', size: [8, 12, 4],    pos: [0, 12, 0],     base: [16, 16], overlay: [16, 32], inflate: 0.5 },
-    { name: '右腕', color: '#e08ae0', size: [armW, 12, 4], pos: [-armX, 12, 0], base: [40, 16], overlay: [40, 32], inflate: 0.5 },
-    { name: '左腕', color: '#ffc46a', size: [armW, 12, 4], pos: [armX, 12, 0],  base: [32, 48], overlay: [48, 48], inflate: 0.5 },
-    { name: '右脚', color: '#7ad67a', size: [4, 12, 4],    pos: [-2, 0, 0],     base: [0, 16],  overlay: [0, 32],  inflate: 0.5 },
-    { name: '左脚', color: '#5ad6c8', size: [4, 12, 4],    pos: [2, 0, 0],      base: [16, 48], overlay: [0, 48],  inflate: 0.5 },
+    { name: '頭',   color: '#ff8a8a', size: [8, 8, 8],     pos: [0, 22, 0],     base: [0, 0],   overlay: [32, 0],  inflate: 1, swing:  0 },
+    { name: '胴',   color: '#8aa8ff', size: [8, 12, 4],    pos: [0, 12, 0],     base: [16, 16], overlay: [16, 32], inflate: 0.5, swing:  0 },
+    { name: '右腕', color: '#e08ae0', size: [armW, 12, 4], pos: [-armX, 12, 0], base: [40, 16], overlay: [40, 32], inflate: 0.5, swing:  1 },
+    { name: '左腕', color: '#ffc46a', size: [armW, 12, 4], pos: [armX, 12, 0],  base: [32, 48], overlay: [48, 48], inflate: 0.5, swing: -1 },
+    { name: '右脚', color: '#7ad67a', size: [4, 12, 4],    pos: [-2, 0, 0],     base: [0, 16],  overlay: [0, 32],  inflate: 0.5, swing: -1 },
+    { name: '左脚', color: '#5ad6c8', size: [4, 12, 4],    pos: [2, 0, 0],      base: [16, 48], overlay: [0, 48],  inflate: 0.5, swing:  1 },
   ];
 }
 
@@ -129,12 +130,12 @@ function makePart(
   [u, v]: [number, number],
   inflate: number,
   material: THREE.Material,
-  [px, py, pz]: [number, number, number]
+  offsetY: number
 ): THREE.Mesh {
   const geo = new THREE.BoxGeometry(w + inflate, h + inflate, d + inflate);
   setGeometryUVs(geo, boxUVs(u, v, w, h, d));
   const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(px, py, pz);
+  mesh.position.y = offsetY;
   return mesh;
 }
 
@@ -151,14 +152,36 @@ export function buildCharacter(texture: THREE.Texture, model: SkinModel): THREE.
     side: THREE.DoubleSide,
   });
 
+  // Each part is a pivot group holding its base and overlay boxes.
+  // Arms and legs pivot at their top edge (shoulder / hip) so they can swing.
   for (const part of getParts(model)) {
-    group.add(makePart(part.size, part.base, 0, baseMat, part.pos));
-    const overlay = makePart(part.size, part.overlay, part.inflate, overlayMat, part.pos);
+    const [px, py, pz] = part.pos;
+    const hinge = part.swing !== 0 ? part.size[1] / 2 : 0;
+    const pivot = new THREE.Group();
+    pivot.position.set(px, py + hinge, pz);
+    pivot.userData.swing = part.swing;
+
+    pivot.add(makePart(part.size, part.base, 0, baseMat, -hinge));
+    const overlay = makePart(part.size, part.overlay, part.inflate, overlayMat, -hinge);
     overlay.userData.overlay = true;
-    group.add(overlay);
+    pivot.add(overlay);
+    group.add(pivot);
   }
 
   return group;
+}
+
+export function setOverlayVisible(character: THREE.Group, visible: boolean) {
+  character.traverse(obj => {
+    if (obj.userData.overlay) obj.visible = visible;
+  });
+}
+
+/** Swing arms and legs by `angle` radians (0 = standing still) */
+export function poseWalk(character: THREE.Group, angle: number) {
+  for (const pivot of character.children) {
+    pivot.rotation.x = angle * (pivot.userData.swing as number);
+  }
 }
 
 export function disposeCharacter(group: THREE.Group) {

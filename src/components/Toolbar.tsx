@@ -11,6 +11,8 @@ interface Props {
   onModelChange: (m: SkinModel) => void;
   mirror: boolean;
   onToggleMirror: () => void;
+  shade: boolean;
+  onToggleShade: () => void;
   showRegions: boolean;
   onToggleRegions: () => void;
   showOverlay: boolean;
@@ -49,7 +51,7 @@ const PALETTE_COLORS = [
 
 export default function Toolbar({
   tool, onToolChange, color, onColorChange, recentColors,
-  model, onModelChange, mirror, onToggleMirror,
+  model, onModelChange, mirror, onToggleMirror, shade, onToggleShade,
   showRegions, onToggleRegions, showOverlay, onToggleOverlay,
   onSave, onSaveAs, onImport, onClear, onUndo, canUndo, onRedo, canRedo,
 }: Props) {
@@ -86,6 +88,13 @@ export default function Toolbar({
           title="ペンと消しゴムを、キャラクターの左右対称の位置にも適用 (M)"
         >
           🪞 左右対称
+        </button>
+        <button
+          className={`option-btn ${shade ? 'active' : ''}`}
+          onClick={onToggleShade}
+          title="ペンと塗りつぶしの色を、1ピクセルごとに少しだけ明るく／暗くばらつかせる (N)"
+        >
+          🎲 色むら
         </button>
       </section>
 

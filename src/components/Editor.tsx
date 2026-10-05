@@ -1,44 +1,29 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import type { SkinModel, SkinPixel, Tool } from '../types';
-import { SKIN_W, SKIN_H, hexToRgba, rgbaToHex } from '../types';
+import { SKIN_W, SKIN_H } from '../types';
+import type { SkinPainter } from '../hooks/useSkinPainter';
 import { SLIM_UNUSED_RECTS, findSkinFace, getSkinBlockLabels, getSkinFaces } from '../utils/skinLayout';
-import { mirrorPixel } from '../utils/skinMirror';
 
 interface Props {
   pixelData: Uint8ClampedArray;
   tool: Tool;
-  color: string;
   model: SkinModel;
-  /** Pen and eraser also paint the left-right mirror image on the character */
-  mirror: boolean;
   showRegions: boolean;
   /** Skin pixel under the cursor, in this editor or on the 3D preview */
   hover: SkinPixel | null;
   onHover: (pixel: SkinPixel | null) => void;
-  onStrokeStart: () => void;
-  onPixelChange: (pixels: Uint8ClampedArray) => void;
-  onColorPick: (hex: string) => void;
-  onColorUsed: (hex: string) => void;
+  painter: SkinPainter;
 }
 
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 32;
 
-export default function Editor({
-  pixelData, tool, color, model, mirror, showRegions, hover, onHover,
-  onStrokeStart, onPixelChange, onColorPick, onColorUsed,
-}: Props) {
+export default function Editor({ pixelData, tool, model, showRegions, hover, onHover, painter }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(8);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const isDrawing = useRef(false);
-  // The undo snapshot is taken on the first pixel a stroke actually changes,
-  // so clicking outside the skin does not use up an undo step
-  const strokeCommitted = useRef(false);
-  const lastPixel = useRef<{ x: number; y: number } | null>(null);
   const panStart = useRef<{ mx: number; my: number; ox: number; oy: number } | null>(null);
-  const workingPixels = useRef<Uint8ClampedArray | null>(null);
 
   const faces = useMemo(() => getSkinFaces(model), [model]);
   const blockLabels = useMemo(() => getSkinBlockLabels(model), [model]);
@@ -212,69 +197,8 @@ export default function Editor({
     const my = e.clientY - rect.top;
     const px = Math.floor((mx - offset.x) / zoom);
     const py = Math.floor((my - offset.y) / zoom);
-    return { px, py, mx, my };
+    return { px, py };
   }, [offset, zoom]);
-
-  // Returns true when the pixel was inside the skin
-  const drawPixel = useCallback((px: number, py: number, pixels: Uint8ClampedArray): boolean => {
-    if (px < 0 || py < 0 || px >= SKIN_W || py >= SKIN_H) return false;
-    const [r, g, b, a] = tool === 'pen' ? hexToRgba(color) : [0, 0, 0, 0];
-    const put = (x: number, y: number) => {
-      const idx = (y * SKIN_W + x) * 4;
-      pixels[idx] = r; pixels[idx + 1] = g; pixels[idx + 2] = b; pixels[idx + 3] = a;
-    };
-    put(px, py);
-    if (mirror) {
-      const mirrored = mirrorPixel(px, py, model);
-      if (mirrored) put(mirrored[0], mirrored[1]);
-    }
-    return true;
-  }, [tool, color, mirror, model]);
-
-  // Returns true when anything was filled
-  const floodFill = useCallback((startX: number, startY: number, pixels: Uint8ClampedArray): boolean => {
-    const idx = (startY * SKIN_W + startX) * 4;
-    const tr = pixels[idx], tg = pixels[idx + 1], tb = pixels[idx + 2], ta = pixels[idx + 3];
-    const [fr, fg, fb, fa] = hexToRgba(color);
-    if (tr === fr && tg === fg && tb === fb && ta === fa) return false;
-
-    const stack = [[startX, startY]];
-    while (stack.length) {
-      const [x, y] = stack.pop()!;
-      if (x < 0 || y < 0 || x >= SKIN_W || y >= SKIN_H) continue;
-      const i = (y * SKIN_W + x) * 4;
-      if (pixels[i] !== tr || pixels[i + 1] !== tg || pixels[i + 2] !== tb || pixels[i + 3] !== ta) continue;
-      pixels[i] = fr; pixels[i + 1] = fg; pixels[i + 2] = fb; pixels[i + 3] = fa;
-      stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-    }
-    return true;
-  }, [color]);
-
-  // Returns true when any pixel of the line was inside the skin
-  const drawLine = useCallback((x0: number, y0: number, x1: number, y1: number, pixels: Uint8ClampedArray): boolean => {
-    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-    let err = dx - dy;
-    let drawn = false;
-    while (true) {
-      if (drawPixel(x0, y0, pixels)) drawn = true;
-      if (x0 === x1 && y0 === y1) break;
-      const e2 = 2 * err;
-      if (e2 > -dy) { err -= dy; x0 += sx; }
-      if (e2 < dx) { err += dx; y0 += sy; }
-    }
-    return drawn;
-  }, [drawPixel]);
-
-  const commitStroke = useCallback(() => {
-    if (!workingPixels.current) return;
-    if (!strokeCommitted.current) {
-      strokeCommitted.current = true;
-      onStrokeStart();
-      if (tool === 'pen') onColorUsed(color);
-    }
-    onPixelChange(new Uint8ClampedArray(workingPixels.current));
-  }, [tool, color, onStrokeStart, onPixelChange, onColorUsed]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
@@ -286,39 +210,11 @@ export default function Editor({
     }
     if (e.button !== 0) return;
 
-    const { px, py } = getSkinCoords(e);
-    const inside = px >= 0 && py >= 0 && px < SKIN_W && py < SKIN_H;
-
-    if (tool === 'eyedropper') {
-      if (inside) {
-        const idx = (py * SKIN_W + px) * 4;
-        if (pixelData[idx + 3] > 0) {
-          onColorPick(rgbaToHex(pixelData[idx], pixelData[idx + 1], pixelData[idx + 2]));
-        }
-      }
-      return;
-    }
-
-    if (tool === 'fill') {
-      if (inside) {
-        const next = new Uint8ClampedArray(pixelData);
-        if (floodFill(px, py, next)) {
-          onStrokeStart();
-          onColorUsed(color);
-          onPixelChange(next);
-        }
-      }
-      return;
-    }
-
     // Keep receiving moves when the cursor leaves the canvas mid-stroke
     e.currentTarget.setPointerCapture(e.pointerId);
-    isDrawing.current = true;
-    strokeCommitted.current = false;
-    workingPixels.current = new Uint8ClampedArray(pixelData);
-    lastPixel.current = { x: px, y: py };
-    if (drawPixel(px, py, workingPixels.current)) commitStroke();
-  }, [getSkinCoords, tool, color, pixelData, offset, drawPixel, floodFill, commitStroke, onStrokeStart, onPixelChange, onColorPick, onColorUsed]);
+    const { px, py } = getSkinCoords(e);
+    painter.begin(px, py);
+  }, [getSkinCoords, offset, painter]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (panStart.current) {
@@ -330,22 +226,13 @@ export default function Editor({
 
     const { px, py } = getSkinCoords(e);
     onHover(px >= 0 && py >= 0 && px < SKIN_W && py < SKIN_H ? { x: px, y: py } : null);
-
-    if (!isDrawing.current || !workingPixels.current) return;
-    const last = lastPixel.current;
-    if (last && (px !== last.x || py !== last.y)) {
-      const drawn = drawLine(last.x, last.y, px, py, workingPixels.current);
-      lastPixel.current = { x: px, y: py };
-      if (drawn) commitStroke();
-    }
-  }, [getSkinCoords, drawLine, commitStroke, onHover]);
+    painter.move(px, py);
+  }, [getSkinCoords, onHover, painter]);
 
   const handlePointerUp = useCallback(() => {
-    isDrawing.current = false;
-    workingPixels.current = null;
-    lastPixel.current = null;
     panStart.current = null;
-  }, []);
+    painter.end();
+  }, [painter]);
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;

@@ -1,7 +1,10 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { buildCharacter, disposeCharacter, findSkinFace, getSkinFaces } from '../utils/skinLayout';
+import type { SkinPainter } from '../hooks/useSkinPainter';
+import {
+  buildCharacter, disposeCharacter, findSkinFace, getSkinFaces, poseWalk, setOverlayVisible,
+} from '../utils/skinLayout';
 import type { SkinModel, SkinPixel } from '../types';
 import { SKIN_W, SKIN_H } from '../types';
 
@@ -12,27 +15,34 @@ interface Props {
   /** Skin pixel under the cursor, in the 2D editor or on this preview */
   hover: SkinPixel | null;
   onHover: (pixel: SkinPixel | null) => void;
+  painter: SkinPainter;
 }
 
-export default function Preview3D({ pixelData, model, showOverlay, hover, onHover }: Props) {
+type PaintLayer = 'base' | 'overlay';
+
+// Arm/leg swing of the walk cycle
+const WALK_ANGLE = 0.7;
+const WALK_SPEED = 5;
+
+export default function Preview3D({ pixelData, model, showOverlay, hover, onHover, painter }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
-    renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
-    camera: THREE.PerspectiveCamera;
-    controls: OrbitControls;
     skinCtx: CanvasRenderingContext2D;
     texture: THREE.CanvasTexture;
   } | null>(null);
   const characterRef = useRef<THREE.Group | null>(null);
 
-  // Latest values for the pointer handlers registered once on mount
-  const pixelDataRef = useRef(pixelData);
-  const onHoverRef = useRef(onHover);
+  // Which layer the cursor points at (and paints on) when the overlay is shown
+  const [paintLayer, setPaintLayer] = useState<PaintLayer>('base');
+  const [walking, setWalking] = useState(false);
+  const activeLayer: PaintLayer = showOverlay ? paintLayer : 'base';
+
+  // Latest values for the handlers and render loop registered once on mount
+  const latest = useRef({ onHover, painter, activeLayer, walking });
   useEffect(() => {
-    pixelDataRef.current = pixelData;
-    onHoverRef.current = onHover;
-  }, [pixelData, onHover]);
+    latest.current = { onHover, painter, activeLayer, walking };
+  }, [onHover, painter, activeLayer, walking]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -70,13 +80,14 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
     camera.position.set(0, 16, distance);
     camera.lookAt(0, 16, 0);
 
-    // Controls
+    // Controls: left-drag on the model paints (see below), so the right button rotates too
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 16, 0);
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
     controls.minDistance = 10;
     controls.maxDistance = 200;
+    controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
     controls.update();
 
     // Skin texture (64x64 canvas)
@@ -96,12 +107,16 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
 
     // Animate
     let animId = 0;
-    const animate = () => {
+    const animate = (time: number) => {
       animId = requestAnimationFrame(animate);
+      const character = characterRef.current;
+      if (character) {
+        poseWalk(character, latest.current.walking ? Math.sin((time / 1000) * WALK_SPEED) * WALK_ANGLE : 0);
+      }
       controls.update();
       renderer.render(scene, camera);
     };
-    animate();
+    animId = requestAnimationFrame(animate);
 
     // Resize handler
     const onResize = () => {
@@ -114,41 +129,77 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
     const ro = new ResizeObserver(onResize);
     ro.observe(mount);
 
-    // Which skin pixel is under the cursor
+    // Which skin pixel of the active layer is under the cursor
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const canvas = renderer.domElement;
-    const onPointerMove = (e: PointerEvent) => {
+    const pick = (e: PointerEvent): SkinPixel | null => {
       const character = characterRef.current;
-      // Skip while a button is held: that is a camera drag
-      if (!character || e.buttons !== 0) return;
+      if (!character) return null;
       const rect = canvas.getBoundingClientRect();
       pointer.set(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       );
       raycaster.setFromCamera(pointer, camera);
-      for (const hit of raycaster.intersectObjects(character.children)) {
-        if (!hit.uv || !hit.object.visible) continue;
-        const x = Math.min(SKIN_W - 1, Math.floor(hit.uv.x * SKIN_W));
-        const y = Math.min(SKIN_H - 1, Math.floor((1 - hit.uv.y) * SKIN_H));
-        // An unpainted overlay pixel is see-through: look at what is behind it
-        if (hit.object.userData.overlay && pixelDataRef.current[(y * SKIN_W + x) * 4 + 3] === 0) continue;
-        onHoverRef.current({ x, y });
+      const wantOverlay = latest.current.activeLayer === 'overlay';
+      for (const hit of raycaster.intersectObject(character, true)) {
+        if (!hit.uv || Boolean(hit.object.userData.overlay) !== wantOverlay) continue;
+        return {
+          x: Math.min(SKIN_W - 1, Math.floor(hit.uv.x * SKIN_W)),
+          y: Math.min(SKIN_H - 1, Math.floor((1 - hit.uv.y) * SKIN_H)),
+        };
+      }
+      return null;
+    };
+
+    // Left button on the model paints; on empty space it falls through to OrbitControls
+    let painting = false;
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const pixel = pick(e);
+      if (!pixel) return;
+      painting = true;
+      controls.enabled = false;
+      canvas.setPointerCapture(e.pointerId);
+      latest.current.painter.begin(pixel.x, pixel.y);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (painting) {
+        const pixel = pick(e);
+        if (pixel) {
+          latest.current.onHover(pixel);
+          latest.current.painter.move(pixel.x, pixel.y, true);
+        }
         return;
       }
-      onHoverRef.current(null);
+      // Any other held button is a camera drag
+      if (e.buttons !== 0) return;
+      latest.current.onHover(pick(e));
     };
-    const onPointerLeave = () => onHoverRef.current(null);
+    const onPointerUp = () => {
+      if (!painting) return;
+      painting = false;
+      controls.enabled = true;
+      latest.current.painter.end();
+    };
+    const onPointerLeave = () => latest.current.onHover(null);
+    // Capture phase: must run before OrbitControls' own pointerdown listener
+    canvas.addEventListener('pointerdown', onPointerDown, true);
     canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('pointercancel', onPointerUp);
     canvas.addEventListener('pointerleave', onPointerLeave);
 
-    sceneRef.current = { renderer, scene, camera, controls, skinCtx, texture };
+    sceneRef.current = { scene, skinCtx, texture };
 
     return () => {
       cancelAnimationFrame(animId);
       ro.disconnect();
+      canvas.removeEventListener('pointerdown', onPointerDown, true);
       canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerUp);
       canvas.removeEventListener('pointerleave', onPointerLeave);
       controls.dispose();
       renderer.dispose();
@@ -166,9 +217,7 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
     // Feet on y=0, head top at y=32
     const character = buildCharacter(texture, model);
     character.position.y = 6;
-    for (const part of character.children) {
-      if (part.userData.overlay) part.visible = showOverlay;
-    }
+    setOverlayVisible(character, showOverlay);
     scene.add(character);
     characterRef.current = character;
 
@@ -205,8 +254,32 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
   return (
     <div className="preview3d-container">
       <div className="preview3d-label">3D プレビュー</div>
+      <div className="preview3d-controls">
+        <div className="preview3d-segment" title="3Dモデル上で指す／描くレイヤー">
+          <button
+            className={activeLayer === 'base' ? 'active' : ''}
+            onClick={() => setPaintLayer('base')}
+          >
+            ベース
+          </button>
+          <button
+            className={activeLayer === 'overlay' ? 'active' : ''}
+            onClick={() => setPaintLayer('overlay')}
+            disabled={!showOverlay}
+          >
+            重ね着
+          </button>
+        </div>
+        <button
+          className={`preview3d-toggle ${walking ? 'active' : ''}`}
+          onClick={() => setWalking(v => !v)}
+          title="歩行アニメーション"
+        >
+          {walking ? '⏸ 停止' : '▶ 歩行'}
+        </button>
+      </div>
       <div ref={mountRef} className="preview3d-mount" />
-      <div className="preview3d-hint">ドラッグで回転 / ホイールでズーム</div>
+      <div className="preview3d-hint">モデルをドラッグ: 描画 / 余白か右ドラッグ: 回転 / ホイール: ズーム</div>
     </div>
   );
 }

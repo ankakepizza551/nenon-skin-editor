@@ -4,6 +4,7 @@ import Preview3D from './components/Preview3D';
 import Toolbar from './components/Toolbar';
 import type { SkinModel, SkinPixel, Tool } from './types';
 import { SKIN_W, SKIN_H, createEmptySkin } from './types';
+import { useSkinPainter } from './hooks/useSkinPainter';
 import { createDefaultSkin } from './utils/defaultSkin';
 import { LEGACY_SKIN_H, convertLegacySkin, detectModel } from './utils/skinConvert';
 import './App.css';
@@ -18,6 +19,7 @@ export default function App() {
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [model, setModel] = useState<SkinModel>('classic');
   const [mirror, setMirror] = useState(false);
+  const [shade, setShade] = useState(false);
   const [showRegions, setShowRegions] = useState(true);
   const [hover, setHover] = useState<SkinPixel | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
@@ -55,6 +57,14 @@ export default function App() {
   const handleColorUsed =useCallback((hex: string) => {
     setRecentColors(prev => (prev[0] === hex ? prev : [hex, ...prev.filter(c => c !== hex)].slice(0, MAX_RECENT_COLORS)));
   }, []);
+
+  const painter = useSkinPainter({
+    pixelData, tool, color, model, mirror, shade,
+    onStrokeStart: handleStrokeStart,
+    onPixelChange: handlePixelChange,
+    onColorPick: setColor,
+    onColorUsed: handleColorUsed,
+  });
 
   const handleUndo = useCallback(() => {
     if (undoStack.current.length === 0) return;
@@ -204,6 +214,7 @@ export default function App() {
         case 'f': setTool('fill'); break;
         case 'i': setTool('eyedropper'); break;
         case 'm': setMirror(v => !v); break;
+        case 'n': setShade(v => !v); break;
       }
     };
     window.addEventListener('keydown', onKey);
@@ -222,7 +233,7 @@ export default function App() {
           {dirty && <span className="unsaved-badge">未保存</span>}
         </div>
         <div className="app-header-actions">
-          <span className="shortcut-hint">P: ペン  E: 消しゴム  F: 塗りつぶし  I: スポイト  M: 左右対称  Ctrl+Z: 元に戻す  Ctrl+Y: やり直す  Ctrl+S: 保存</span>
+          <span className="shortcut-hint">P: ペン  E: 消しゴム  F: 塗りつぶし  I: スポイト  M: 左右対称  N: 色むら  Ctrl+Z: 元に戻す  Ctrl+Y: やり直す  Ctrl+S: 保存</span>
         </div>
       </header>
 
@@ -237,6 +248,8 @@ export default function App() {
           onModelChange={setModel}
           mirror={mirror}
           onToggleMirror={() => setMirror(v => !v)}
+          shade={shade}
+          onToggleShade={() => setShade(v => !v)}
           showRegions={showRegions}
           onToggleRegions={() => setShowRegions(v => !v)}
           showOverlay={showOverlay}
@@ -254,19 +267,14 @@ export default function App() {
         <Editor
           pixelData={pixelData}
           tool={tool}
-          color={color}
           model={model}
-          mirror={mirror}
           showRegions={showRegions}
           hover={hover}
           onHover={handleHover}
-          onStrokeStart={handleStrokeStart}
-          onPixelChange={handlePixelChange}
-          onColorPick={setColor}
-          onColorUsed={handleColorUsed}
+          painter={painter}
         />
 
-        <Preview3D pixelData={pixelData} model={model} showOverlay={showOverlay} hover={hover} onHover={handleHover} />
+        <Preview3D pixelData={pixelData} model={model} showOverlay={showOverlay} hover={hover} onHover={handleHover} painter={painter} />
       </div>
 
       <input

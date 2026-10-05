@@ -341,7 +341,52 @@
 }
 
 .preview3d-mount canvas {
-  cursor: grab;
+  cursor: crosshair;
+}
+
+.preview3d-controls {
+  position: absolute;
+  top: 26px;
+  left: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.preview3d-segment {
+  display: flex;
+}
+
+.preview3d-segment button,
+.preview3d-toggle {
+  border: 1px solid #2a2a4a;
+  background: rgba(30, 30, 58, 0.9);
+  color: #c0c0e0;
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.preview3d-segment button:first-child { border-radius: 4px 0 0 4px; }
+.preview3d-segment button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.preview3d-toggle { border-radius: 4px; }
+
+.preview3d-segment button:hover:not(:disabled),
+.preview3d-toggle:hover {
+  background: #2a2a50;
+}
+
+.preview3d-segment button.active,
+.preview3d-toggle.active {
+  background: #3a3a7a;
+  border-color: #7070d0;
+}
+
+.preview3d-segment button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .preview3d-hint {
