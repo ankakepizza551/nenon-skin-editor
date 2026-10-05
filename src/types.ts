@@ -5,6 +5,8 @@ export type SkinModel = 'classic' | 'slim';
 
 export interface SkinPixel { x: number; y: number }
 
+export const MAX_BRUSH_SIZE = 4;
+
 export const SKIN_W = 64;
 export const SKIN_H = 64;
 

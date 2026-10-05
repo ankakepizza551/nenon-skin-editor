@@ -1,7 +1,7 @@
 {
   "name": "minecraft-skin-editor",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Minecraft Skin Editor",
   "author": "ankakepizza551",
   "main": "electron/main.js",

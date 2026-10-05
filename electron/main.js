@@ -4,6 +4,9 @@ const path = require('path');
 
 const isDev = process.env.NODE_ENV === 'development';
 
+// src/utils/autosave.ts と同じキー
+const AUTOSAVE_KEY = 'minecraft-skin-editor.autosave';
+
 // 未保存の変更があるか（レンダラーから通知される）
 let dirty = false;
 
@@ -63,7 +66,14 @@ function createWindow() {
       message: '保存していない変更があります',
       detail: '閉じると変更は失われます。',
     });
-    if (choice === 1) event.preventDefault();
+    event.preventDefault();
+    if (choice === 1) return;
+    // 破棄を選んだので、次回起動時に復元を聞かれないよう自動保存も消してから閉じる
+    dirty = false;
+    win.webContents
+      .executeJavaScript(`localStorage.removeItem(${JSON.stringify(AUTOSAVE_KEY)})`)
+      .catch(() => {})
+      .finally(() => win.close());
   });
 
   // シンプルなメニュー

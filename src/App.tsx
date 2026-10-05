@@ -3,10 +3,11 @@ import Editor from './components/Editor';
 import Preview3D from './components/Preview3D';
 import Toolbar from './components/Toolbar';
 import type { SkinModel, SkinPixel, Tool } from './types';
-import { SKIN_W, SKIN_H, createEmptySkin } from './types';
+import { MAX_BRUSH_SIZE, SKIN_W, SKIN_H, createEmptySkin } from './types';
 import { useSkinPainter } from './hooks/useSkinPainter';
 import type { BodySide } from './utils/skinMirror';
 import { mirrorHalf } from './utils/skinOps';
+import { getRestoredSession, saveSession } from './utils/autosave';
 import { createDefaultSkin } from './utils/defaultSkin';
 import { LEGACY_SKIN_H, convertLegacySkin, detectModel } from './utils/skinConvert';
 import './App.css';
@@ -15,19 +16,20 @@ const MAX_UNDO = 30;
 const MAX_RECENT_COLORS = 10;
 
 export default function App() {
-  const [pixelData, setPixelData] = useState<Uint8ClampedArray>(createDefaultSkin);
+  const [pixelData, setPixelData] = useState<Uint8ClampedArray>(() => getRestoredSession()?.pixels ?? createDefaultSkin());
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#ff5500');
   const [recentColors, setRecentColors] = useState<string[]>([]);
-  const [model, setModel] = useState<SkinModel>('classic');
+  const [brushSize, setBrushSize] = useState(1);
+  const [model, setModel] = useState<SkinModel>(() => getRestoredSession()?.model ?? 'classic');
   const [mirror, setMirror] = useState(false);
   const [shade, setShade] = useState(false);
   const [showRegions, setShowRegions] = useState(true);
   const [hover, setHover] = useState<SkinPixel | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(() => getRestoredSession() !== null);
   // File that Ctrl+S overwrites (desktop app only)
-  const [filePath, setFilePath] = useState<string | null>(null);
+  const [filePath, setFilePath] = useState<string | null>(() => getRestoredSession()?.filePath ?? null);
   const undoStack = useRef<Uint8ClampedArray[]>([]);
   const redoStack = useRef<Uint8ClampedArray[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -61,7 +63,7 @@ export default function App() {
   }, []);
 
   const painter = useSkinPainter({
-    pixelData, tool, color, model, mirror, shade,
+    pixelData, tool, color, brushSize, model, mirror, shade,
     onStrokeStart: handleStrokeStart,
     onPixelChange: handlePixelChange,
     onColorPick: setColor,
@@ -203,6 +205,12 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [dirty]);
 
+  // Autosave shortly after each change, so a crash or an accidental close loses nothing
+  useEffect(() => {
+    const timer = setTimeout(() => saveSession({ pixels: pixelData, model, filePath, dirty }), 500);
+    return () => clearTimeout(timer);
+  }, [pixelData, model, filePath, dirty]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -224,6 +232,8 @@ export default function App() {
         case 'd': setTool('darken'); break;
         case 'm': setMirror(v => !v); break;
         case 'n': setShade(v => !v); break;
+        case '[': setBrushSize(s => Math.max(1, s - 1)); break;
+        case ']': setBrushSize(s => Math.min(MAX_BRUSH_SIZE, s + 1)); break;
       }
     };
     window.addEventListener('keydown', onKey);
@@ -253,6 +263,8 @@ export default function App() {
           color={color}
           onColorChange={setColor}
           recentColors={recentColors}
+          brushSize={brushSize}
+          onBrushSizeChange={setBrushSize}
           model={model}
           onModelChange={setModel}
           mirror={mirror}
@@ -277,6 +289,7 @@ export default function App() {
         <Editor
           pixelData={pixelData}
           tool={tool}
+          brushSize={brushSize}
           model={model}
           showRegions={showRegions}
           hover={hover}

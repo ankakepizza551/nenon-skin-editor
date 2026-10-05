@@ -160,6 +160,7 @@ export function buildCharacter(texture: THREE.Texture, model: SkinModel): THREE.
     const pivot = new THREE.Group();
     pivot.position.set(px, py + hinge, pz);
     pivot.userData.swing = part.swing;
+    pivot.userData.part = part.name;
 
     pivot.add(makePart(part.size, part.base, 0, baseMat, -hinge));
     const overlay = makePart(part.size, part.overlay, part.inflate, overlayMat, -hinge);
@@ -169,6 +170,15 @@ export function buildCharacter(texture: THREE.Texture, model: SkinModel): THREE.
   }
 
   return group;
+}
+
+export const PART_NAMES = ['頭', '胴', '右腕', '左腕', '右脚', '左脚'] as const;
+
+/** Hide whole body parts in the preview, e.g. an arm that is in the way of the body's side */
+export function setHiddenParts(character: THREE.Group, hidden: ReadonlySet<string>) {
+  for (const pivot of character.children) {
+    pivot.visible = !hidden.has(pivot.userData.part as string);
+  }
 }
 
 export function setOverlayVisible(character: THREE.Group, visible: boolean) {

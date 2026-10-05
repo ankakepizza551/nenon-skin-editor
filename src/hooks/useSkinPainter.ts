@@ -8,6 +8,8 @@ interface Options {
   pixelData: Uint8ClampedArray;
   tool: Tool;
   color: string;
+  /** Side of the square brush, in skin pixels (pen, eraser, lighten, darken) */
+  brushSize: number;
   model: SkinModel;
   /** Brush tools also paint the left-right mirror image on the character */
   mirror: boolean;
@@ -49,7 +51,7 @@ function noise(x: number, y: number, seed: number): number {
 const isInside = (x: number, y: number) => x >= 0 && y >= 0 && x < SKIN_W && y < SKIN_H;
 
 export function useSkinPainter({
-  pixelData, tool, color, model, mirror, shade,
+  pixelData, tool, color, brushSize, model, mirror, shade,
   onStrokeStart, onPixelChange, onColorPick, onColorUsed,
 }: Options): SkinPainter {
   const working = useRef<Uint8ClampedArray | null>(null);
@@ -99,15 +101,27 @@ export function useSkinPainter({
   // Returns true when a pixel was changed
   const plot = useCallback((px: number, py: number, pixels: Uint8ClampedArray): boolean => {
     if (!isInside(px, py)) return false;
-    // The mirrored pixel gets the same shade, so both halves stay symmetric
-    const source = colorAt(px, py);
-    let changed = paint(px, py, pixels, source);
-    if (mirror) {
-      const mirrored = mirrorPixel(px, py, model);
-      if (mirrored && paint(mirrored[0], mirrored[1], pixels, source)) changed = true;
+    // A wide brush stays on the face its centre is on, so it never spills onto
+    // whatever part happens to sit next to it in the skin layout
+    const region = regions[py * SKIN_W + px];
+    const start = -Math.floor((brushSize - 1) / 2);
+    let changed = false;
+    for (let dy = 0; dy < brushSize; dy++) {
+      for (let dx = 0; dx < brushSize; dx++) {
+        const x = px + start + dx;
+        const y = py + start + dy;
+        if (!isInside(x, y) || regions[y * SKIN_W + x] !== region) continue;
+        // The mirrored pixel gets the same shade, so both halves stay symmetric
+        const source = colorAt(x, y);
+        if (paint(x, y, pixels, source)) changed = true;
+        if (mirror) {
+          const mirrored = mirrorPixel(x, y, model);
+          if (mirrored && paint(mirrored[0], mirrored[1], pixels, source)) changed = true;
+        }
+      }
     }
     return changed;
-  }, [colorAt, paint, mirror, model]);
+  }, [colorAt, paint, brushSize, regions, mirror, model]);
 
   // Returns true when any pixel of the line was changed
   const line = useCallback((x0: number, y0: number, x1: number, y1: number, pixels: Uint8ClampedArray): boolean => {

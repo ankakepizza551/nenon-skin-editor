@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { SkinModel, Tool } from '../types';
+import { MAX_BRUSH_SIZE } from '../types';
 import type { BodySide } from '../utils/skinMirror';
 
 interface Props {
@@ -8,6 +9,8 @@ interface Props {
   color: string;
   onColorChange: (c: string) => void;
   recentColors: string[];
+  brushSize: number;
+  onBrushSizeChange: (size: number) => void;
   model: SkinModel;
   onModelChange: (m: SkinModel) => void;
   mirror: boolean;
@@ -45,6 +48,8 @@ const TOOLS: { id: Tool; icon: string; label: string; key: string }[] = [
   { id: 'darken',     icon: '🌙', label: '暗く (D)：なぞった所を一段暗くする',     key: 'D' },
 ];
 
+const BRUSH_SIZES = Array.from({ length: MAX_BRUSH_SIZE }, (_, i) => i + 1);
+
 const PALETTE_COLORS = [
   '#ffffff', '#c8c8c8', '#888888', '#444444', '#000000',
   '#ff0000', '#ff7700', '#ffff00', '#00bb00', '#0000ff',
@@ -55,7 +60,7 @@ const PALETTE_COLORS = [
 ];
 
 export default function Toolbar({
-  tool, onToolChange, color, onColorChange, recentColors,
+  tool, onToolChange, color, onColorChange, recentColors, brushSize, onBrushSizeChange,
   model, onModelChange, mirror, onToggleMirror, shade, onToggleShade,
   showRegions, onToggleRegions, showOverlay, onToggleOverlay,
   onSave, onSaveAs, onImport, onMirrorHalf, onClear, onUndo, canUndo, onRedo, canRedo,
@@ -84,6 +89,18 @@ export default function Toolbar({
               title={t.label}
             >
               {t.icon}
+            </button>
+          ))}
+        </div>
+        <div className="brush-size-row" title="ブラシの太さ（[ と ] で変更）。ペン・消しゴム・明るく・暗くに効きます">
+          <span className="brush-size-label">太さ</span>
+          {BRUSH_SIZES.map(size => (
+            <button
+              key={size}
+              className={`brush-size-btn ${brushSize === size ? 'active' : ''}`}
+              onClick={() => onBrushSizeChange(size)}
+            >
+              {size}
             </button>
           ))}
         </div>
@@ -257,6 +274,7 @@ export default function Toolbar({
         <div>Ctrl+Z: 元に戻す</div>
         <div>Ctrl+Y: やり直す</div>
         <div>Ctrl+S: 保存</div>
+        <div>[ / ]: ブラシの太さ</div>
         <div>PNG をドロップ: 読込</div>
       </div>
     </aside>

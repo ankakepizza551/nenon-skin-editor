@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { SkinPainter } from '../hooks/useSkinPainter';
 import {
-  buildCharacter, disposeCharacter, findSkinFace, getSkinFaces, poseWalk, setOverlayVisible,
+  PART_NAMES, buildCharacter, disposeCharacter, findSkinFace, getSkinFaces, poseWalk,
+  setHiddenParts, setOverlayVisible,
 } from '../utils/skinLayout';
 import type { SkinModel, SkinPixel } from '../types';
 import { SKIN_W, SKIN_H } from '../types';
@@ -36,6 +37,14 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
   // Which layer the cursor points at (and paints on) when the overlay is shown
   const [paintLayer, setPaintLayer] = useState<PaintLayer>('base');
   const [walking, setWalking] = useState(false);
+  const [hiddenParts, setHiddenPartsState] = useState<ReadonlySet<string>>(new Set());
+  const togglePart = (name: string) => {
+    setHiddenPartsState(prev => {
+      const next = new Set(prev);
+      if (!next.delete(name)) next.add(name);
+      return next;
+    });
+  };
   const activeLayer: PaintLayer = showOverlay ? paintLayer : 'base';
 
   // Latest values for the handlers and render loop registered once on mount
@@ -144,7 +153,9 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
       raycaster.setFromCamera(pointer, camera);
       const wantOverlay = latest.current.activeLayer === 'overlay';
       for (const hit of raycaster.intersectObject(character, true)) {
-        if (!hit.uv || Boolean(hit.object.userData.overlay) !== wantOverlay) continue;
+        // The raycaster also reports hidden objects
+        if (!hit.uv || !hit.object.parent?.visible) continue;
+        if (Boolean(hit.object.userData.overlay) !== wantOverlay) continue;
         return {
           x: Math.min(SKIN_W - 1, Math.floor(hit.uv.x * SKIN_W)),
           y: Math.min(SKIN_H - 1, Math.floor((1 - hit.uv.y) * SKIN_H)),
@@ -228,6 +239,11 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
     };
   }, [model, showOverlay]);
 
+  // Runs after the character is (re)built above
+  useEffect(() => {
+    if (characterRef.current) setHiddenParts(characterRef.current, hiddenParts);
+  }, [hiddenParts, model, showOverlay]);
+
   // Update texture whenever pixelData or the hovered pixel changes
   useEffect(() => {
     const ref = sceneRef.current;
@@ -279,6 +295,17 @@ export default function Preview3D({ pixelData, model, showOverlay, hover, onHove
         </button>
       </div>
       <div ref={mountRef} className="preview3d-mount" />
+      <div className="preview3d-parts" title="クリックでパーツの表示／非表示を切り替え">
+        {PART_NAMES.map(name => (
+          <button
+            key={name}
+            className={hiddenParts.has(name) ? '' : 'active'}
+            onClick={() => togglePart(name)}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
       <div className="preview3d-hint">モデルをドラッグ: 描画 / 余白か右ドラッグ: 回転 / ホイール: ズーム</div>
     </div>
   );

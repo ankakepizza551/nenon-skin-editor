@@ -7,6 +7,7 @@ import { SLIM_UNUSED_RECTS, findSkinFace, getSkinBlockLabels, getSkinFaces } fro
 interface Props {
   pixelData: Uint8ClampedArray;
   tool: Tool;
+  brushSize: number;
   model: SkinModel;
   showRegions: boolean;
   /** Skin pixel under the cursor, in this editor or on the 3D preview */
@@ -18,7 +19,7 @@ interface Props {
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 32;
 
-export default function Editor({ pixelData, tool, model, showRegions, hover, onHover, painter }: Props) {
+export default function Editor({ pixelData, tool, brushSize, model, showRegions, hover, onHover, painter }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(8);
@@ -147,15 +148,19 @@ export default function Editor({ pixelData, tool, model, showRegions, hover, onH
 
     // Hovered pixel (from this canvas or from the 3D preview)
     if (hover) {
-      const hx = offset.x + hover.x * zoom;
-      const hy = offset.y + hover.y * zoom;
+      // Brush tools show their footprint; the others point at a single pixel
+      const size = tool === 'fill' || tool === 'eyedropper' ? 1 : brushSize;
+      const start = -Math.floor((size - 1) / 2);
+      const hx = offset.x + (hover.x + start) * zoom;
+      const hy = offset.y + (hover.y + start) * zoom;
+      const side = size * zoom;
       ctx.lineWidth = 1;
       ctx.strokeStyle = '#000000';
-      ctx.strokeRect(hx - 1.5, hy - 1.5, zoom + 3, zoom + 3);
+      ctx.strokeRect(hx - 1.5, hy - 1.5, side + 3, side + 3);
       ctx.strokeStyle = '#ffff00';
-      ctx.strokeRect(hx - 0.5, hy - 0.5, zoom + 1, zoom + 1);
+      ctx.strokeRect(hx - 0.5, hy - 0.5, side + 1, side + 1);
     }
-  }, [pixelData, zoom, offset, model, showRegions, faces, blockLabels, hover]);
+  }, [pixelData, zoom, offset, model, showRegions, faces, blockLabels, hover, tool, brushSize]);
 
   const renderRef = useRef(render);
   useEffect(() => {
