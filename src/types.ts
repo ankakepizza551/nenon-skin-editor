@@ -3,6 +3,8 @@ export type Tool = 'pen' | 'eraser' | 'fill' | 'eyedropper';
 // classic = Steve (4px arms), slim = Alex (3px arms)
 export type SkinModel = 'classic' | 'slim';
 
+export interface SkinPixel { x: number; y: number }
+
 export const SKIN_W = 64;
 export const SKIN_H = 64;
 

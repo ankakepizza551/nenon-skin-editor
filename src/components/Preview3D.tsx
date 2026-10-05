@@ -1,17 +1,20 @@
 import { useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { buildCharacter, disposeCharacter } from '../utils/skinLayout';
-import type { SkinModel } from '../types';
+import { buildCharacter, disposeCharacter, findSkinFace, getSkinFaces } from '../utils/skinLayout';
+import type { SkinModel, SkinPixel } from '../types';
 import { SKIN_W, SKIN_H } from '../types';
 
 interface Props {
   pixelData: Uint8ClampedArray;
   model: SkinModel;
   showOverlay: boolean;
+  /** Skin pixel under the cursor, in the 2D editor or on this preview */
+  hover: SkinPixel | null;
+  onHover: (pixel: SkinPixel | null) => void;
 }
 
-export default function Preview3D({ pixelData, model, showOverlay }: Props) {
+export default function Preview3D({ pixelData, model, showOverlay, hover, onHover }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -20,8 +23,16 @@ export default function Preview3D({ pixelData, model, showOverlay }: Props) {
     controls: OrbitControls;
     skinCtx: CanvasRenderingContext2D;
     texture: THREE.CanvasTexture;
-    animId: number;
   } | null>(null);
+  const characterRef = useRef<THREE.Group | null>(null);
+
+  // Latest values for the pointer handlers registered once on mount
+  const pixelDataRef = useRef(pixelData);
+  const onHoverRef = useRef(onHover);
+  useEffect(() => {
+    pixelDataRef.current = pixelData;
+    onHoverRef.current = onHover;
+  }, [pixelData, onHover]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -103,11 +114,42 @@ export default function Preview3D({ pixelData, model, showOverlay }: Props) {
     const ro = new ResizeObserver(onResize);
     ro.observe(mount);
 
-    sceneRef.current = { renderer, scene, camera, controls, skinCtx, texture, animId };
+    // Which skin pixel is under the cursor
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const canvas = renderer.domElement;
+    const onPointerMove = (e: PointerEvent) => {
+      const character = characterRef.current;
+      // Skip while a button is held: that is a camera drag
+      if (!character || e.buttons !== 0) return;
+      const rect = canvas.getBoundingClientRect();
+      pointer.set(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      raycaster.setFromCamera(pointer, camera);
+      for (const hit of raycaster.intersectObjects(character.children)) {
+        if (!hit.uv || !hit.object.visible) continue;
+        const x = Math.min(SKIN_W - 1, Math.floor(hit.uv.x * SKIN_W));
+        const y = Math.min(SKIN_H - 1, Math.floor((1 - hit.uv.y) * SKIN_H));
+        // An unpainted overlay pixel is see-through: look at what is behind it
+        if (hit.object.userData.overlay && pixelDataRef.current[(y * SKIN_W + x) * 4 + 3] === 0) continue;
+        onHoverRef.current({ x, y });
+        return;
+      }
+      onHoverRef.current(null);
+    };
+    const onPointerLeave = () => onHoverRef.current(null);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerleave', onPointerLeave);
+
+    sceneRef.current = { renderer, scene, camera, controls, skinCtx, texture };
 
     return () => {
       cancelAnimationFrame(animId);
       ro.disconnect();
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerleave', onPointerLeave);
       controls.dispose();
       renderer.dispose();
       mount.removeChild(renderer.domElement);
@@ -128,14 +170,16 @@ export default function Preview3D({ pixelData, model, showOverlay }: Props) {
       if (part.userData.overlay) part.visible = showOverlay;
     }
     scene.add(character);
+    characterRef.current = character;
 
     return () => {
       scene.remove(character);
       disposeCharacter(character);
+      characterRef.current = null;
     };
   }, [model, showOverlay]);
 
-  // Update texture whenever pixelData changes
+  // Update texture whenever pixelData or the hovered pixel changes
   useEffect(() => {
     const ref = sceneRef.current;
     if (!ref) return;
@@ -143,8 +187,20 @@ export default function Preview3D({ pixelData, model, showOverlay }: Props) {
 
     const imageData = new ImageData(new Uint8ClampedArray(pixelData), SKIN_W, SKIN_H);
     skinCtx.putImageData(imageData, 0, 0);
+
+    // Light up the hovered face, and mark the hovered pixel itself
+    if (hover) {
+      const face = findSkinFace(getSkinFaces(model), hover.x, hover.y);
+      if (face) {
+        skinCtx.fillStyle = 'rgba(255,255,255,0.3)';
+        skinCtx.fillRect(face.x, face.y, face.w, face.h);
+      }
+      skinCtx.fillStyle = '#ffff00';
+      skinCtx.fillRect(hover.x, hover.y, 1, 1);
+    }
+
     texture.needsUpdate = true;
-  }, [pixelData]);
+  }, [pixelData, hover, model]);
 
   return (
     <div className="preview3d-container">

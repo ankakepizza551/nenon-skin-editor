@@ -178,7 +178,7 @@ export default function Toolbar({
           className={`option-btn ${showRegions ? 'active' : ''}`}
           onClick={onToggleRegions}
         >
-          🗺️ パーツ表示
+          🗺️ パーツガイド
         </button>
         <button
           className={`option-btn ${showOverlay ? 'active' : ''}`}

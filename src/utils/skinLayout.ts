@@ -55,6 +55,8 @@ function setGeometryUVs(geo: THREE.BoxGeometry, faces: FaceUV[]) {
 }
 
 interface PartDef {
+  name: string;
+  color: string;                      // guide color in the 2D editor
   size: [number, number, number];     // w, h, d in skin pixels
   pos: [number, number, number];      // centre of the box
   base: [number, number];             // skin block of the base layer
@@ -68,13 +70,58 @@ function getParts(model: SkinModel): PartDef[] {
   const armW = model === 'slim' ? 3 : 4;
   const armX = 4 + armW / 2;
   return [
-    { size: [8, 8, 8],     pos: [0, 22, 0],     base: [0, 0],   overlay: [32, 0],  inflate: 1   }, // head
-    { size: [8, 12, 4],    pos: [0, 12, 0],     base: [16, 16], overlay: [16, 32], inflate: 0.5 }, // body
-    { size: [armW, 12, 4], pos: [-armX, 12, 0], base: [40, 16], overlay: [40, 32], inflate: 0.5 }, // right arm
-    { size: [armW, 12, 4], pos: [armX, 12, 0],  base: [32, 48], overlay: [48, 48], inflate: 0.5 }, // left arm
-    { size: [4, 12, 4],    pos: [-2, 0, 0],     base: [0, 16],  overlay: [0, 32],  inflate: 0.5 }, // right leg
-    { size: [4, 12, 4],    pos: [2, 0, 0],      base: [16, 48], overlay: [0, 48],  inflate: 0.5 }, // left leg
+    { name: '頭',   color: '#ff8a8a', size: [8, 8, 8],     pos: [0, 22, 0],     base: [0, 0],   overlay: [32, 0],  inflate: 1   },
+    { name: '胴',   color: '#8aa8ff', size: [8, 12, 4],    pos: [0, 12, 0],     base: [16, 16], overlay: [16, 32], inflate: 0.5 },
+    { name: '右腕', color: '#e08ae0', size: [armW, 12, 4], pos: [-armX, 12, 0], base: [40, 16], overlay: [40, 32], inflate: 0.5 },
+    { name: '左腕', color: '#ffc46a', size: [armW, 12, 4], pos: [armX, 12, 0],  base: [32, 48], overlay: [48, 48], inflate: 0.5 },
+    { name: '右脚', color: '#7ad67a', size: [4, 12, 4],    pos: [-2, 0, 0],     base: [0, 16],  overlay: [0, 32],  inflate: 0.5 },
+    { name: '左脚', color: '#5ad6c8', size: [4, 12, 4],    pos: [2, 0, 0],      base: [16, 48], overlay: [0, 48],  inflate: 0.5 },
   ];
+}
+
+/** One face of one body part, as a rectangle on the skin. 右/左 are the character's own right/left. */
+export interface SkinFace {
+  x: number; y: number; w: number; h: number;
+  part: string;
+  face: '前' | '後' | '右' | '左' | '上' | '下';
+  overlay: boolean;
+  color: string;
+}
+
+/** The unused d×d corner of a part's block, where the editor writes the part name */
+export interface SkinBlockLabel {
+  x: number; y: number; size: number;
+  part: string;
+  overlay: boolean;
+  color: string;
+}
+
+export function getSkinFaces(model: SkinModel): SkinFace[] {
+  return getParts(model).flatMap(({ name, color, size: [w, h, d], base, overlay }) =>
+    [base, overlay].flatMap(([u, v], layer) => {
+      const common = { part: name, overlay: layer === 1, color };
+      return [
+        { ...common, face: '右', x: u,             y: v + d, w: d, h },
+        { ...common, face: '前', x: u + d,         y: v + d, w,    h },
+        { ...common, face: '左', x: u + d + w,     y: v + d, w: d, h },
+        { ...common, face: '後', x: u + d + w + d, y: v + d, w,    h },
+        { ...common, face: '上', x: u + d,         y: v,     w,    h: d },
+        { ...common, face: '下', x: u + d + w,     y: v,     w,    h: d },
+      ] satisfies SkinFace[];
+    })
+  );
+}
+
+export function getSkinBlockLabels(model: SkinModel): SkinBlockLabel[] {
+  return getParts(model).flatMap(({ name, color, size, base, overlay }) =>
+    [base, overlay].map(([u, v], layer) => ({
+      x: u, y: v, size: size[2], part: name, overlay: layer === 1, color,
+    }))
+  );
+}
+
+export function findSkinFace(faces: SkinFace[], x: number, y: number): SkinFace | null {
+  return faces.find(f => x >= f.x && x < f.x + f.w && y >= f.y && y < f.y + f.h) ?? null;
 }
 
 function makePart(
@@ -132,19 +179,3 @@ export const SLIM_UNUSED_RECTS: { x: number; y: number; w: number; h: number }[]
     { x: u + 10, y: v,     w: 2, h: 4 },
     { x: u + 14, y: v + 4, w: 2, h: 12 },
   ]);
-
-// Body part UV region hints for the 2D editor overlay
-export const PART_REGIONS: { label: string; color: string; x: number; y: number; w: number; h: number }[] = [
-  { label: 'Head',              color: 'rgba(255,100,100,0.25)', x: 0,  y: 0,  w: 32, h: 16 },
-  { label: 'Head Overlay',      color: 'rgba(255,150,50,0.2)',   x: 32, y: 0,  w: 32, h: 16 },
-  { label: 'Right Leg',         color: 'rgba(100,200,100,0.25)', x: 0,  y: 16, w: 16, h: 16 },
-  { label: 'Body',              color: 'rgba(100,100,255,0.25)', x: 16, y: 16, w: 24, h: 16 },
-  { label: 'Right Arm',         color: 'rgba(200,100,200,0.25)', x: 40, y: 16, w: 16, h: 16 },
-  { label: 'Right Leg Overlay', color: 'rgba(100,200,150,0.2)',  x: 0,  y: 32, w: 16, h: 16 },
-  { label: 'Body Overlay',      color: 'rgba(150,150,255,0.2)',  x: 16, y: 32, w: 24, h: 16 },
-  { label: 'Right Arm Overlay', color: 'rgba(220,150,220,0.2)',  x: 40, y: 32, w: 16, h: 16 },
-  { label: 'Left Leg Overlay',  color: 'rgba(50,220,200,0.2)',   x: 0,  y: 48, w: 16, h: 16 },
-  { label: 'Left Leg',          color: 'rgba(50,220,150,0.25)',  x: 16, y: 48, w: 16, h: 16 },
-  { label: 'Left Arm',          color: 'rgba(255,200,100,0.25)', x: 32, y: 48, w: 16, h: 16 },
-  { label: 'Left Arm Overlay',  color: 'rgba(255,220,150,0.2)',  x: 48, y: 48, w: 16, h: 16 },
-];

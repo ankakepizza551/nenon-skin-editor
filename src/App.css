@@ -279,6 +279,29 @@
   height: 100%;
 }
 
+.editor-hover-label {
+  position: absolute;
+  bottom: 8px;
+  left: 10px;
+  padding: 4px 9px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8e8ff;
+  background: rgba(15, 15, 32, 0.85);
+  border: 1px solid #3a3a6a;
+  border-radius: 4px;
+  user-select: none;
+  pointer-events: none;
+}
+
+.editor-hover-coords {
+  margin-left: 10px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #7070a0;
+  white-space: pre;
+}
+
 .editor-zoom-label {
   position: absolute;
   bottom: 8px;
@@ -315,6 +338,10 @@
   flex: 1;
   overflow: hidden;
   position: relative;
+}
+
+.preview3d-mount canvas {
+  cursor: grab;
 }
 
 .preview3d-hint {

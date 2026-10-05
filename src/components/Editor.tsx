@@ -1,7 +1,7 @@
-import { useRef, useEffect, useCallback, useState } from 'react';
-import type { SkinModel, Tool } from '../types';
+import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
+import type { SkinModel, SkinPixel, Tool } from '../types';
 import { SKIN_W, SKIN_H, hexToRgba, rgbaToHex } from '../types';
-import { PART_REGIONS, SLIM_UNUSED_RECTS } from '../utils/skinLayout';
+import { SLIM_UNUSED_RECTS, findSkinFace, getSkinBlockLabels, getSkinFaces } from '../utils/skinLayout';
 import { mirrorPixel } from '../utils/skinMirror';
 
 interface Props {
@@ -12,6 +12,9 @@ interface Props {
   /** Pen and eraser also paint the left-right mirror image on the character */
   mirror: boolean;
   showRegions: boolean;
+  /** Skin pixel under the cursor, in this editor or on the 3D preview */
+  hover: SkinPixel | null;
+  onHover: (pixel: SkinPixel | null) => void;
   onStrokeStart: () => void;
   onPixelChange: (pixels: Uint8ClampedArray) => void;
   onColorPick: (hex: string) => void;
@@ -22,7 +25,7 @@ const MIN_ZOOM = 2;
 const MAX_ZOOM = 32;
 
 export default function Editor({
-  pixelData, tool, color, model, mirror, showRegions,
+  pixelData, tool, color, model, mirror, showRegions, hover, onHover,
   onStrokeStart, onPixelChange, onColorPick, onColorUsed,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -36,6 +39,10 @@ export default function Editor({
   const lastPixel = useRef<{ x: number; y: number } | null>(null);
   const panStart = useRef<{ mx: number; my: number; ox: number; oy: number } | null>(null);
   const workingPixels = useRef<Uint8ClampedArray | null>(null);
+
+  const faces = useMemo(() => getSkinFaces(model), [model]);
+  const blockLabels = useMemo(() => getSkinBlockLabels(model), [model]);
+  const hoverFace = hover ? findSkinFace(faces, hover.x, hover.y) : null;
 
   // Draw the canvas
   const render = useCallback(() => {
@@ -99,26 +106,71 @@ export default function Editor({
     ctx.lineWidth = 1;
     ctx.strokeRect(offset.x + 0.5, offset.y + 0.5, SKIN_W * zoom, SKIN_H * zoom);
 
-    // Body part region overlays
+    // Part guide: one outline per face (dashed for overlay layers), labelled with the
+    // face name, and the part name written in the unused corner of each block
     if (showRegions) {
-      for (const region of PART_REGIONS) {
-        const rx = offset.x + region.x * zoom;
-        const ry = offset.y + region.y * zoom;
-        const rw = region.w * zoom;
-        const rh = region.h * zoom;
-        ctx.fillStyle = region.color;
-        ctx.fillRect(rx, ry, rw, rh);
-        ctx.strokeStyle = region.color.replace('0.2', '0.8').replace('0.25', '0.8');
-        ctx.lineWidth = 1;
-        ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
-        if (zoom >= 4 && rw > 30) {
-          ctx.fillStyle = 'rgba(255,255,255,0.9)';
-          ctx.font = `bold ${Math.min(10, zoom * 0.8)}px sans-serif`;
-          ctx.fillText(region.label, rx + 3, ry + 11);
+      const outlined = (text: string, x: number, y: number) => {
+        ctx.strokeText(text, x, y);
+        ctx.fillText(text, x, y);
+      };
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+
+      for (const face of faces) {
+        const rx = offset.x + face.x * zoom;
+        const ry = offset.y + face.y * zoom;
+        const rw = face.w * zoom;
+        const rh = face.h * zoom;
+        ctx.strokeStyle = face.color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash(face.overlay ? [4, 3] : []);
+        ctx.strokeRect(rx + 1, ry + 1, rw - 2, rh - 2);
+        ctx.setLineDash([]);
+        if (Math.min(rw, rh) >= 18) {
+          ctx.font = 'bold 11px sans-serif';
+          ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+          ctx.lineWidth = 3;
+          ctx.fillStyle = '#ffffff';
+          outlined(face.face, rx + rw / 2, ry + rh / 2);
         }
       }
+
+      for (const label of blockLabels) {
+        const size = label.size * zoom;
+        if (size < 26) continue;
+        const cx = offset.x + label.x * zoom + size / 2;
+        const cy = offset.y + label.y * zoom + size / 2;
+        ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+        ctx.lineWidth = 3;
+        ctx.fillStyle = label.color;
+        ctx.font = 'bold 12px sans-serif';
+        if (!label.overlay) {
+          outlined(label.part, cx, cy);
+        } else if (size >= 40) {
+          outlined(label.part, cx, cy - 7);
+          ctx.font = 'bold 9px sans-serif';
+          outlined('重ね着', cx, cy + 7);
+        } else {
+          outlined(label.part + '+', cx, cy);
+        }
+      }
+
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
     }
-  }, [pixelData, zoom, offset, model, showRegions]);
+
+    // Hovered pixel (from this canvas or from the 3D preview)
+    if (hover) {
+      const hx = offset.x + hover.x * zoom;
+      const hy = offset.y + hover.y * zoom;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#000000';
+      ctx.strokeRect(hx - 1.5, hy - 1.5, zoom + 3, zoom + 3);
+      ctx.strokeStyle = '#ffff00';
+      ctx.strokeRect(hx - 0.5, hy - 0.5, zoom + 1, zoom + 1);
+    }
+  }, [pixelData, zoom, offset, model, showRegions, faces, blockLabels, hover]);
 
   const renderRef = useRef(render);
   useEffect(() => {
@@ -276,15 +328,17 @@ export default function Editor({
       return;
     }
 
-    if (!isDrawing.current || !workingPixels.current) return;
     const { px, py } = getSkinCoords(e);
+    onHover(px >= 0 && py >= 0 && px < SKIN_W && py < SKIN_H ? { x: px, y: py } : null);
+
+    if (!isDrawing.current || !workingPixels.current) return;
     const last = lastPixel.current;
     if (last && (px !== last.x || py !== last.y)) {
       const drawn = drawLine(last.x, last.y, px, py, workingPixels.current);
       lastPixel.current = { x: px, y: py };
       if (drawn) commitStroke();
     }
-  }, [getSkinCoords, drawLine, commitStroke]);
+  }, [getSkinCoords, drawLine, commitStroke, onHover]);
 
   const handlePointerUp = useCallback(() => {
     isDrawing.current = false;
@@ -319,8 +373,17 @@ export default function Editor({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onPointerLeave={() => onHover(null)}
         onWheel={handleWheel}
       />
+      {hover && (
+        <div className="editor-hover-label">
+          {hoverFace
+            ? `${hoverFace.part}${hoverFace.overlay ? '（重ね着）' : ''}・${hoverFace.face}`
+            : '未使用の領域'}
+          <span className="editor-hover-coords">x {hover.x}  y {hover.y}</span>
+        </div>
+      )}
       <div className="editor-zoom-label">×{zoom}</div>
     </div>
   );

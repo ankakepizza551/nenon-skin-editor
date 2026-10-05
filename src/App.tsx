@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import Editor from './components/Editor';
 import Preview3D from './components/Preview3D';
 import Toolbar from './components/Toolbar';
-import type { SkinModel, Tool } from './types';
+import type { SkinModel, SkinPixel, Tool } from './types';
 import { SKIN_W, SKIN_H, createEmptySkin } from './types';
 import { createDefaultSkin } from './utils/defaultSkin';
 import { LEGACY_SKIN_H, convertLegacySkin, detectModel } from './utils/skinConvert';
@@ -18,7 +18,8 @@ export default function App() {
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [model, setModel] = useState<SkinModel>('classic');
   const [mirror, setMirror] = useState(false);
-  const [showRegions, setShowRegions] = useState(false);
+  const [showRegions, setShowRegions] = useState(true);
+  const [hover, setHover] = useState<SkinPixel | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
   const [dirty, setDirty] = useState(false);
   // File that Ctrl+S overwrites (desktop app only)
@@ -47,7 +48,11 @@ export default function App() {
     setPixelData(pixels);
   }, []);
 
-  const handleColorUsed = useCallback((hex: string) => {
+  const handleHover = useCallback((pixel: SkinPixel | null) => {
+    setHover(prev => (prev?.x === pixel?.x && prev?.y === pixel?.y ? prev : pixel));
+  }, []);
+
+  const handleColorUsed =useCallback((hex: string) => {
     setRecentColors(prev => (prev[0] === hex ? prev : [hex, ...prev.filter(c => c !== hex)].slice(0, MAX_RECENT_COLORS)));
   }, []);
 
@@ -253,13 +258,15 @@ export default function App() {
           model={model}
           mirror={mirror}
           showRegions={showRegions}
+          hover={hover}
+          onHover={handleHover}
           onStrokeStart={handleStrokeStart}
           onPixelChange={handlePixelChange}
           onColorPick={setColor}
           onColorUsed={handleColorUsed}
         />
 
-        <Preview3D pixelData={pixelData} model={model} showOverlay={showOverlay} />
+        <Preview3D pixelData={pixelData} model={model} showOverlay={showOverlay} hover={hover} onHover={handleHover} />
       </div>
 
       <input
