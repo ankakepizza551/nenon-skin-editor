@@ -14,7 +14,7 @@ import { createDefaultSkin } from './utils/defaultSkin';
 import { LEGACY_SKIN_H, convertLegacySkin, detectModel } from './utils/skinConvert';
 import './App.css';
 
-const MAX_UNDO = 30;
+const MAX_UNDO = 100;
 const MAX_RECENT_COLORS = 10;
 
 export default function App() {
@@ -257,6 +257,7 @@ export default function App() {
         case 'i': setTool('eyedropper'); break;
         case 'l': setTool('lighten'); break;
         case 'd': setTool('darken'); break;
+        case 's': setTool('select'); break;
         case 'm': setMirror(v => !v); break;
         case 'n': setShade(v => !v); break;
         case '[': setBrushSize(s => Math.max(1, s - 1)); break;
@@ -279,7 +280,7 @@ export default function App() {
           {dirty && <span className="unsaved-badge">未保存</span>}
         </div>
         <div className="app-header-actions">
-          <span className="shortcut-hint">P: ペン  E: 消しゴム  F: 塗りつぶし  I: スポイト  L/D: 明るく/暗く  M: 左右対称  N: 色むら  Ctrl+Z: 元に戻す  Ctrl+Y: やり直す  Ctrl+S: 保存</span>
+          <span className="shortcut-hint">P: ペン  E: 消しゴム  F: 塗りつぶし  I: スポイト  S: 範囲選択  L/D: 明るく/暗く  M: 左右対称  N: 色むら  Ctrl+Z: 元に戻す  Ctrl+Y: やり直す  Ctrl+S: 保存</span>
         </div>
       </header>
 
@@ -328,6 +329,8 @@ export default function App() {
           hover={hover}
           onHover={handleHover}
           painter={painter}
+          onStrokeStart={handleStrokeStart}
+          onPixelChange={handlePixelChange}
         />
 
         <Preview3D pixelData={pixelData} model={model} showOverlay={showOverlay} hover={hover} onHover={handleHover} painter={painter} />

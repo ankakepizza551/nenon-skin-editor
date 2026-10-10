@@ -1,4 +1,4 @@
-export type Tool = 'pen' | 'eraser' | 'fill' | 'eyedropper' | 'lighten' | 'darken';
+export type Tool = 'pen' | 'eraser' | 'fill' | 'eyedropper' | 'lighten' | 'darken' | 'select';
 
 // classic = Steve (4px arms), slim = Alex (3px arms)
 export type SkinModel = 'classic' | 'slim';

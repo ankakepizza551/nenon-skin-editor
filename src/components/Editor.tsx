@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import type { SkinModel, SkinPixel, Tool } from '../types';
 import { SKIN_W, SKIN_H } from '../types';
 import type { SkinPainter } from '../hooks/useSkinPainter';
+import { useSelection } from '../hooks/useSelection';
 import { SLIM_UNUSED_RECTS, findSkinFace, getSkinBlockLabels, getSkinFaces } from '../utils/skinLayout';
 
 interface Props {
@@ -14,12 +15,16 @@ interface Props {
   hover: SkinPixel | null;
   onHover: (pixel: SkinPixel | null) => void;
   painter: SkinPainter;
+  onStrokeStart: () => void;
+  onPixelChange: (pixels: Uint8ClampedArray) => void;
 }
 
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 32;
 
-export default function Editor({ pixelData, tool, brushSize, model, showRegions, hover, onHover, painter }: Props) {
+export default function Editor({
+  pixelData, tool, brushSize, model, showRegions, hover, onHover, painter, onStrokeStart, onPixelChange,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(8);
@@ -29,6 +34,10 @@ export default function Editor({ pixelData, tool, brushSize, model, showRegions,
   const faces = useMemo(() => getSkinFaces(model), [model]);
   const blockLabels = useMemo(() => getSkinBlockLabels(model), [model]);
   const hoverFace = hover ? findSkinFace(faces, hover.x, hover.y) : null;
+
+  const selecting = tool === 'select';
+  const selection = useSelection({ active: selecting, pixelData, onStrokeStart, onPixelChange });
+  const selectionRect = selection.rect;
 
   // Draw the canvas
   const render = useCallback(() => {
@@ -147,9 +156,24 @@ export default function Editor({ pixelData, tool, brushSize, model, showRegions,
     }
 
     // Hovered pixel (from this canvas or from the 3D preview)
+    // Selection rectangle
+    if (selectionRect) {
+      const sx = offset.x + selectionRect.x * zoom + 0.5;
+      const sy = offset.y + selectionRect.y * zoom + 0.5;
+      const sw = selectionRect.w * zoom;
+      const sh = selectionRect.h * zoom;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#000000';
+      ctx.strokeRect(sx, sy, sw, sh);
+      ctx.strokeStyle = '#ffffff';
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(sx, sy, sw, sh);
+      ctx.setLineDash([]);
+    }
+
     if (hover) {
       // Brush tools show their footprint; the others point at a single pixel
-      const size = tool === 'fill' || tool === 'eyedropper' ? 1 : brushSize;
+      const size = tool === 'fill' || tool === 'eyedropper' || tool === 'select' ? 1 : brushSize;
       const start = -Math.floor((size - 1) / 2);
       const hx = offset.x + (hover.x + start) * zoom;
       const hy = offset.y + (hover.y + start) * zoom;
@@ -160,7 +184,7 @@ export default function Editor({ pixelData, tool, brushSize, model, showRegions,
       ctx.strokeStyle = '#ffff00';
       ctx.strokeRect(hx - 0.5, hy - 0.5, side + 1, side + 1);
     }
-  }, [pixelData, zoom, offset, model, showRegions, faces, blockLabels, hover, tool, brushSize]);
+  }, [pixelData, zoom, offset, model, showRegions, faces, blockLabels, hover, tool, brushSize, selectionRect]);
 
   const renderRef = useRef(render);
   useEffect(() => {
@@ -218,8 +242,9 @@ export default function Editor({ pixelData, tool, brushSize, model, showRegions,
     // Keep receiving moves when the cursor leaves the canvas mid-stroke
     e.currentTarget.setPointerCapture(e.pointerId);
     const { px, py } = getSkinCoords(e);
-    painter.begin(px, py);
-  }, [getSkinCoords, offset, painter]);
+    if (selecting) selection.begin(px, py, e.ctrlKey);
+    else painter.begin(px, py);
+  }, [getSkinCoords, offset, painter, selecting, selection]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (panStart.current) {
@@ -231,13 +256,15 @@ export default function Editor({ pixelData, tool, brushSize, model, showRegions,
 
     const { px, py } = getSkinCoords(e);
     onHover(px >= 0 && py >= 0 && px < SKIN_W && py < SKIN_H ? { x: px, y: py } : null);
-    painter.move(px, py);
-  }, [getSkinCoords, onHover, painter]);
+    if (selecting) selection.move(px, py);
+    else painter.move(px, py);
+  }, [getSkinCoords, onHover, painter, selecting, selection]);
 
   const handlePointerUp = useCallback(() => {
     panStart.current = null;
     painter.end();
-  }, [painter]);
+    selection.end();
+  }, [painter, selection]);
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;
@@ -261,6 +288,7 @@ export default function Editor({ pixelData, tool, brushSize, model, showRegions,
       <canvas
         ref={canvasRef}
         className="editor-canvas"
+        style={{ cursor: hover && selection.contains(hover.x, hover.y) && selectionRect ? 'move' : undefined }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -274,6 +302,9 @@ export default function Editor({ pixelData, tool, brushSize, model, showRegions,
             ? `${hoverFace.part}${hoverFace.overlay ? '（重ね着）' : ''}・${hoverFace.face}`
             : '未使用の領域'}
           <span className="editor-hover-coords">x {hover.x}  y {hover.y}</span>
+          {selectionRect && (
+            <span className="editor-hover-coords">選択 {selectionRect.w}×{selectionRect.h}</span>
+          )}
         </div>
       )}
       <div className="editor-zoom-label">×{zoom}</div>

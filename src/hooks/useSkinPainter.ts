@@ -176,6 +176,9 @@ export function useSkinPainter({
   }, [tool, color, onStrokeStart, onPixelChange, onColorUsed]);
 
   const begin = useCallback((px: number, py: number) => {
+    // The selection tool is handled by the 2D editor; it does nothing on the 3D preview
+    if (tool === 'select') return;
+
     if (tool === 'eyedropper') {
       if (isInside(px, py)) {
         const idx = (py * SKIN_W + px) * 4;

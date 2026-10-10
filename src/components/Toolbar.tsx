@@ -51,6 +51,7 @@ const TOOLS: { id: Tool; icon: string; label: string; key: string }[] = [
   { id: 'eyedropper', icon: '💉', label: 'スポイト (I)',   key: 'I' },
   { id: 'lighten',    icon: '☀️', label: '明るく (L)：なぞった所を一段明るくする', key: 'L' },
   { id: 'darken',     icon: '🌙', label: '暗く (D)：なぞった所を一段暗くする',     key: 'D' },
+  { id: 'select',     icon: '⬚', label: '範囲選択 (S)：ドラッグで選択。選択範囲をドラッグか矢印キーで移動、Ctrl+ドラッグで複製、Delete で消去、Esc で解除', key: 'S' },
 ];
 
 const BRUSH_SIZES = Array.from({ length: MAX_BRUSH_SIZE }, (_, i) => i + 1);
@@ -313,6 +314,7 @@ export default function Toolbar({
         <div>Ctrl+Y: やり直す</div>
         <div>Ctrl+S: 保存</div>
         <div>[ / ]: ブラシの太さ</div>
+        <div>選択中 矢印: 移動 / Del: 消去</div>
         <div>PNG をドロップ: 読込</div>
       </div>
     </aside>
