@@ -8,6 +8,14 @@ Minecraft（Java版）のスキンを、3Dで確認しながら描けるエデ�
 > これは個人が作った非公式ツールです。Mojang および Microsoft とは関係がなく、承認や支援を受けたものでもありません。
 > Minecraft は Mojang Synergies AB の商標です。
 
+## Web版
+
+インストールせずに、ブラウザでそのまま使えます。
+
+**<https://ankakepizza551.github.io/nenon-skin-editor/>**
+
+Web版では、保存は PNG のダウンロードになります（同じファイルへの上書き保存はできません）。それ以外の機能はデスクトップ版と同じです。
+
 ## ダウンロード
 
 [Releases](../../releases) から Windows 用の exe をダウンロードできます。
