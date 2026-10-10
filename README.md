@@ -12,8 +12,8 @@ Minecraft（Java版）のスキンを、3Dで確認しながら描けるエデ�
 
 [Releases](../../releases) から Windows 用の exe をダウンロードできます。
 
-- `nenon Skin Editor Setup x.x.x.exe`：インストーラー版
-- `nenon Skin Editor x.x.x.exe`：インストール不要のポータブル版
+- `nenon.Skin.Editor.Setup.x.x.x.exe`：インストーラー版
+- `nenon.Skin.Editor.x.x.x.exe`：インストール不要のポータブル版
 
 コード署名をしていないため、初回起動時に Windows の SmartScreen 警告が出ます。「詳細情報」→「実行」で起動できます。
 
