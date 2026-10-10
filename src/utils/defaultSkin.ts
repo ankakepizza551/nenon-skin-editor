@@ -1,12 +1,12 @@
 import { SKIN_W, createEmptySkin, hexToRgba } from '../types';
 
 const SKIN = '#e0aa82';
-const HAIR = '#5a3a22';
-const SHIRT = '#2f9c95';
-const PANTS = '#3b4a9a';
-const SHOES = '#55555f';
+const HAIR = '#2e2a3a';
+const SHIRT = '#d9643a';
+const PANTS = '#4a4a55';
+const SHOES = '#26262c';
 const EYE = '#ffffff';
-const PUPIL = '#2b3f7a';
+const PUPIL = '#3a6a4a';
 const MOUTH = '#a8604e';
 
 function fill(pixels: Uint8ClampedArray, hex: string, x: number, y: number, w: number, h: number) {
