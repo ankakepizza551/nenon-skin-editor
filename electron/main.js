@@ -39,7 +39,7 @@ function createWindow() {
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    title: 'Minecraft Skin Editor',
+    title: 'nenon Skin Editor',
     backgroundColor: '#0f0f1a',
     webPreferences: {
       nodeIntegration: false,

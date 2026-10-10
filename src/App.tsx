@@ -275,7 +275,7 @@ export default function App() {
       <header className="app-header">
         <div className="app-title">
           <span className="app-icon">⛏️</span>
-          <h1>Minecraft Skin Editor</h1>
+          <h1>nenon Skin Editor</h1>
           {fileName && <span className="file-name" title={filePath ?? undefined}>{fileName}</span>}
           {dirty && <span className="unsaved-badge">未保存</span>}
         </div>

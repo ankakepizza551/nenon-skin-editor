@@ -1,9 +1,10 @@
 {
-  "name": "minecraft-skin-editor",
+  "name": "nenon-skin-editor",
   "private": true,
-  "version": "1.8.0",
-  "description": "Minecraft Skin Editor",
-  "author": "ankakepizza551",
+  "version": "1.9.0",
+  "description": "Unofficial skin editor for Minecraft",
+  "author": "nenon",
+  "license": "MIT",
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
@@ -16,8 +17,8 @@
     "electron:build:win": "npm run build && electron-builder --win"
   },
   "build": {
-    "appId": "com.tools.minecraft-skin-editor",
-    "productName": "Minecraft Skin Editor",
+    "appId": "com.nenon.skin-editor",
+    "productName": "nenon Skin Editor",
     "directories": {
       "output": "release"
     },
@@ -47,7 +48,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Minecraft Skin Editor"
+      "shortcutName": "nenon Skin Editor"
     }
   },
   "dependencies": {
